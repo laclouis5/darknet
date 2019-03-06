@@ -9,6 +9,8 @@
 *.dll
 *.lib
 *.dylib
+*.pyc
+results/
 mnist/
 data/
 caffe/
