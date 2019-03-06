@@ -41,7 +41,6 @@ ARCH= -gencode arch=compute_61,code=sm_61 -gencode arch=compute_61,code=compute_
 # For Jetson Tx2 or Drive-PX2 uncomment:
 # ARCH= -gencode arch=compute_62,code=[sm_62,compute_62]
 
-
 VPATH=./src/
 EXEC=darknet
 OBJDIR=./obj/
