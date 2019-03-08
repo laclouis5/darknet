@@ -32,6 +32,9 @@ import math
 import random
 import os
 
+# from lib.BoundingBox import BoundingBox
+# from lib.BoundingBoxes import BoundingBoxes
+
 def sample(probs):
     s = sum(probs)
     probs = [a/s for a in probs]
@@ -435,4 +438,17 @@ def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yo
     return detections
 
 if __name__ == "__main__":
-    print(performDetect())
+    image_path  = "data/val/"
+    model_path  = "results/yolov3-tiny_7/yolov3-tiny_obj_4500.weights"
+    config_file = "results/yolov3-tiny_7/yolov3-tiny_obj.cfg"
+    meta_path   = "results/yolov3-tiny_7/obj.data"
+
+    images = os.listdir(image_path)
+    images = [os.path.join(image_path, item) for item in images if os.path.splitext(item)[1] == ".jpg"]
+
+    result = [performDetect(imagePath=image,configPath =config_file, weightPath =model_path, metaPath=meta_path, showImage=False) for image in images]
+
+    for im in result:
+        for res in im:
+            name = res[0]
+            print(name)
