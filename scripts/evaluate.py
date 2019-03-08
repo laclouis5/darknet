@@ -2,7 +2,7 @@ import os
 import subprocess
 
 eval_folder = "backup/"
-cfg_file    = "cfg/yolov3_obj.cfg"
+cfg_file    = "cfg/yolov3-tiny_obj.cfg"
 data_file   = "data/obj.data"
 labels      = {0: 'mais', 1: 'haricot', 2: 'carotte'}
 
