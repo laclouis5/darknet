@@ -11,7 +11,7 @@
 
 
 // To use tracking - uncomment the following line. Tracking is supported only by OpenCV 3.x
-//#define TRACK_OPTFLOW
+#define TRACK_OPTFLOW
 
 //#include "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.1\include\cuda_runtime.h"
 //#pragma comment(lib, "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v9.1/lib/x64/cudart.lib")
