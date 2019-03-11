@@ -444,6 +444,27 @@ def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yo
             print("Unable to show image: "+str(e))
     return detections
 
+
+def save_detect_to_txt(images, save_dir, model_path, cfg_path, data_path):
+    names = [os.path.split(image)[1] for image in images]
+    names = [os.path.join(save_dir, os.path.splitext(name)[0] + ('.txt')) for name in names]
+
+    for i, image in enumerate(images):
+        detections = performDetect(imagePath=image, configPath=cfg_path, weightPath=model_path, metaPath=data_path, showImage=False)
+
+        with open(names[i], 'w') as f:
+            for detection in detections:
+                box   = detection[2]
+                x_min = round(box[0] - box[2]/2)
+                y_min = round(box[1] - box[3]/2)
+                x_max = round(box[2])
+                y_max = round(box[3])
+
+                line = "{} {:.4} {} {} {} {}\n".format(detection[0], detection[1], x_min, y_min, x_max, y_max)
+
+                f.write(line)
+
+
 if __name__ == "__main__":
     image_path  = "data/val/"
     model_path  = "results/yolov3-tiny_7/yolov3-tiny_obj_4500.weights"
@@ -453,9 +474,4 @@ if __name__ == "__main__":
     images = os.listdir(image_path)
     images = [os.path.join(image_path, item) for item in images if os.path.splitext(item)[1] == ".jpg"]
 
-    result = [performDetect(imagePath=image,configPath =config_file, weightPath =model_path, metaPath=meta_path, showImage=False) for image in images]
-
-    for im in result:
-        for res in im:
-            name = res[0]
-            print(name)
+    save_detect_to_txt(images, 'detections/', model_path=model_path, cfg_path=config_file, data_path=meta_path)
