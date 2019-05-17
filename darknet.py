@@ -32,6 +32,7 @@ import math
 import random
 import os
 
+import cv2 as cv
 # from lib.BoundingBox import BoundingBox
 # from lib.BoundingBoxes import BoundingBoxes
 
@@ -458,13 +459,109 @@ def save_detect_to_txt(images, save_dir, model_path, cfg_path, data_path):
                 f.write(line)
 
 
+def convertBack(x, y, w, h):
+    xmin = int(round(x - (w / 2)))
+    xmax = int(round(x + (w / 2)))
+    ymin = int(round(y - (h / 2)))
+    ymax = int(round(y + (h / 2)))
+    return xmin, ymin, xmax, ymax
+
+
+def cvDrawBoxes(detections, img):
+    for detection in detections:
+        x, y, w, h =  detection[2][0],\
+            detection[2][1],\
+            detection[2][2],\
+            detection[2][3]
+        xmin, ymin, xmax, ymax = convertBack(
+            float(x), float(y), float(w), float(h))
+        pt1 = (xmin, ymin)
+        pt2 = (xmax, ymax)
+
+        colors = (255, 128, 64)
+
+        cv.rectangle(img, pt1, pt2, colors, 10)
+    return img
+
+
+def detect_on_folder(images, save_dir, model_path, cfg_path, data_path):
+    names = [os.path.split(image)[1] for image in images]
+    names = [os.path.join(save_dir, os.path.splitext(name)[0] + ('.jpg')) for name in names]
+
+    for i, image in enumerate(images):
+        detections = performDetect(imagePath=image, configPath=cfg_path, weightPath=model_path, metaPath=data_path, showImage=False)
+        img_out = cvDrawBoxes(detections, cv.imread(image))
+
+        cv.imwrite(names[i], img_out)
+
+
 if __name__ == "__main__":
+    from my_xml_toolbox import XMLTree
+    from test import egi_mask
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from PIL import Image
+    from joblib import Parallel, delayed
+
     image_path  = "data/val/"
     model_path  = "results/yolov3-tiny_7/yolov3-tiny_obj_4500.weights"
     config_file = "results/yolov3-tiny_7/yolov3-tiny_obj.cfg"
     meta_path   = "results/yolov3-tiny_7/obj.data"
 
+    consort  = 'bipbip'
+    save_dir = 'masks/'
+
     images = os.listdir(image_path)
     images = [os.path.join(image_path, item) for item in images if os.path.splitext(item)[1] == ".jpg"]
 
-    save_detect_to_txt(images, 'detections/', model_path=model_path, cfg_path=config_file, data_path=meta_path)
+    # for image in images:
+    def compute_mask(image):
+        img_name  = os.path.split(os.path.splitext(image)[0])[1]
+        image_egi = egi_mask(cv.imread(image))
+        im_in     = Image.fromarray(np.uint8(255 * image_egi))
+
+        h, w = image_egi.shape
+
+        detections = performDetect(
+            imagePath=image,
+            configPath=config_file,
+            weightPath=model_path,
+            metaPath=meta_path,
+            showImage=False)
+
+        xml_tree = XMLTree(
+            image_name=img_name,
+            width=w,
+            height=h,
+            user_name="BIPBIP")
+
+        for detection in detections:
+            name = detection[0]
+            bbox = detection[2]
+            xmin, ymin, xmax, ymax = convertBack(bbox[0], bbox[1], bbox[2], bbox[3])
+            bbox = [xmin, ymin, xmax, ymax]
+
+            xml_tree.add_mask_zone(plant_type='PlanteInteret', bbox=bbox, name=name)
+
+            box = (xmin, ymin, xmax, ymax)
+
+            im_out = Image.new(mode='1', size=(w, h))
+            region = im_in.crop(box)
+            im_out.paste(region, box)
+
+            im_out.save('{}{}_{}_{}.pgm'.format(
+                save_dir,
+                consort,
+                img_name,
+                str(xml_tree.get_current_mask_id())))
+
+        xml_tree.save('{}{}_{}.xml'.format(
+            save_dir,
+            consort,
+            img_name))
+
+    Parallel(n_jobs=-1, backend="multiprocessing")(map(delayed(compute_mask), images))
+    # plt.imshow(image_egi, cmap="gray")
+    # plt.show()
+
+    # detect_on_folder(images, "save/", model_path, config_file, meta_path)
