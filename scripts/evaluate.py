@@ -3,7 +3,7 @@ import subprocess
 
 eval_folder = "backup/"
 cfg_file    = "cfg/yolov3-tiny_obj.cfg"
-data_file   = "data/obj.data"
+data_file   = "data/obj_2.data"
 labels      = {0: 'mais', 1: 'haricot', 2: 'carotte'}
 
 cwd = '/home/deepwater/github/darknet/'
