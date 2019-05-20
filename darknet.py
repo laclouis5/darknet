@@ -511,17 +511,23 @@ if __name__ == "__main__":
     consort  = 'bipbip'
     save_dir = 'masks/'
 
+    plant_to_keep = []
+
+    # Create a list of image names to process
     images = os.listdir(image_path)
     images = [os.path.join(image_path, item) for item in images if os.path.splitext(item)[1] == ".jpg"]
 
-    # for image in images:
-    def compute_mask(image):
+    def create_operose_result(image, plant_to_keep=[]):
+        # Creates and populate XML tree, save plant masks as PGM and XLM file
+        # for each images
+
         img_name  = os.path.split(os.path.splitext(image)[0])[1]
         image_egi = egi_mask(cv.imread(image))
         im_in     = Image.fromarray(np.uint8(255 * image_egi))
 
         h, w = image_egi.shape
 
+        # Perform detection using Darknet
         detections = performDetect(
             imagePath=image,
             configPath=config_file,
@@ -529,14 +535,19 @@ if __name__ == "__main__":
             metaPath=meta_path,
             showImage=False)
 
+        # XML tree init
         xml_tree = XMLTree(
             image_name=img_name,
             width=w,
             height=h,
-            user_name="BIPBIP")
+            user_name=consort)
 
+        # For every detection save PGM mask and add field to the xml tree
         for detection in detections:
             name = detection[0]
+
+            if (name not in plant_to_keep) and plant_to_keep: continue
+
             bbox = detection[2]
             xmin, ymin, xmax, ymax = convertBack(bbox[0], bbox[1], bbox[2], bbox[3])
             bbox = [xmin, ymin, xmax, ymax]
@@ -560,7 +571,14 @@ if __name__ == "__main__":
             consort,
             img_name))
 
-    Parallel(n_jobs=-1, backend="multiprocessing")(map(delayed(compute_mask), images))
+    # Parallel computation for every images
+    Parallel(
+        n_jobs=-1,
+        backend="multiprocessing")(map(
+            delayed(create_operose_result),
+            images,
+            [plant_to_keep for _ in range(len(images))]))
+
     # plt.imshow(image_egi, cmap="gray")
     # plt.show()
 
