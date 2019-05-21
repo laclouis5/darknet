@@ -502,6 +502,61 @@ def detect_on_folder(images, save_dir, model_path, cfg_path, data_path):
         cv.imwrite(names[i], img_out)
 
 
+def create_operose_result(image, plant_to_keep=[]):
+    # Creates and populate XML tree, save plant masks as PGM and XLM file
+    # for each images
+
+    img_name  = os.path.split(os.path.splitext(image)[0])[1]
+    image_egi = egi_mask(cv.imread(image))
+    im_in     = Image.fromarray(np.uint8(255 * image_egi))
+
+    h, w = image_egi.shape
+
+    # Perform detection using Darknet[1]
+    detections = performDetect(
+        imagePath=image,
+        configPath=config_file,
+        weightPath=model_path,
+        metaPath=meta_path,
+        showImage=False)
+
+    # XML tree init
+    xml_tree = XMLTree(
+        image_name=img_name,
+        width=w,
+        height=h,
+        user_name=consort)
+
+    # For every detection save PGM mask and add field to the xml tree
+    for detection in detections:
+        name = detection[0]
+
+        if (name not in plant_to_keep) and plant_to_keep: continue
+
+        bbox = detection[2]
+        xmin, xmax, ymin, ymax = convertBack(bbox[0], bbox[1], bbox[2], bbox[3])
+        bbox = (xmin, ymin, xmax, ymax)
+
+        xml_tree.add_mask_zone(plant_type='PlanteInteret', bbox=bbox, name=name)
+
+        box = (xmin, ymin, xmax, ymax)
+
+        im_out = Image.new(mode='1', size=(w, h))
+        region = im_in.crop(box)
+        im_out.paste(region, box)
+
+        im_out.save('{}{}_{}_{}.pgm'.format(
+            save_dir,
+            consort,
+            img_name,
+            str(xml_tree.get_current_mask_id())))
+
+    xml_tree.save('{}{}_{}.xml'.format(
+        save_dir,
+        consort,
+        img_name))
+
+
 if __name__ == "__main__":
     from my_xml_toolbox import XMLTree
     from test import egi_mask
@@ -524,63 +579,9 @@ if __name__ == "__main__":
     images = os.listdir(image_path)
     images = [os.path.join(image_path, item) for item in images if os.path.splitext(item)[1] == ".jpg"]
 
-    def create_operose_result(image, plant_to_keep=[]):
-        # Creates and populate XML tree, save plant masks as PGM and XLM file
-        # for each images
-
-        img_name  = os.path.split(os.path.splitext(image)[0])[1]
-        image_egi = egi_mask(cv.imread(image))
-        im_in     = Image.fromarray(np.uint8(255 * image_egi))
-
-        h, w = image_egi.shape
-
-        # Perform detection using Darknet
-        detections = performDetect(
-            imagePath=image,
-            configPath=config_file,
-            weightPath=model_path,
-            metaPath=meta_path,
-            showImage=False)
-
-        # XML tree init
-        xml_tree = XMLTree(
-            image_name=img_name,
-            width=w,
-            height=h,
-            user_name=consort)
-
-        # For every detection save PGM mask and add field to the xml tree
-        for detection in detections:
-            name = detection[0]
-
-            if (name not in plant_to_keep) and plant_to_keep: continue
-
-            bbox = detection[2]
-            xmin, ymin, xmax, ymax = convertBack(bbox[0], bbox[1], bbox[2], bbox[3])
-            bbox = [xmin, ymin, xmax, ymax]
-
-            xml_tree.add_mask_zone(plant_type='PlanteInteret', bbox=bbox, name=name)
-
-            box = (xmin, ymin, xmax, ymax)
-
-            im_out = Image.new(mode='1', size=(w, h))
-            region = im_in.crop(box)
-            im_out.paste(region, box)
-
-            im_out.save('{}{}_{}_{}.pgm'.format(
-                save_dir,
-                consort,
-                img_name,
-                str(xml_tree.get_current_mask_id())))
-
-        xml_tree.save('{}{}_{}.xml'.format(
-            save_dir,
-            consort,
-            img_name))
-
     # Parallel computation for every images
     Parallel(
-        n_jobs=-1,
+        n_jobs=1,
         backend="multiprocessing")(map(
             delayed(create_operose_result),
             images,
