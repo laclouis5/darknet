@@ -33,18 +33,16 @@ def cvDrawBoxes(detections, img):
                     [0, 255, 0], 2)
     return img
 
-
 netMain = None
 metaMain = None
 altNames = None
 
-
 def YOLO():
 
     global metaMain, netMain, altNames
-    configPath = "./cfg/yolov3.cfg"
-    weightPath = "./yolov3.weights"
-    metaPath = "./cfg/coco.data"
+    configPath = "./cfg/yolov3-tiny_obj.cfg"
+    weightPath = "./backup/yolov3-tiny_obj_final.weights"
+    metaPath = "./data/obj.data"
     if not os.path.exists(configPath):
         raise ValueError("Invalid config path `" +
                          os.path.abspath(configPath)+"`")
