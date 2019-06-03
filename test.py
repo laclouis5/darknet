@@ -21,6 +21,42 @@ def egi_mask(image, thresh=1.15):
     return image_out
 
 
+def egi_mask_2(image, thresh=40):
+    image_np  = np.array(image).astype(np.float)
+    image_egi = 2 * image_np[:, :, 1] - image_np[:, :, 0] - image_np[:, :, 2]
+    image_gf  = filters.gaussian(image_egi, sigma=1, mode='reflect')
+    image_bin = image_gf > 40
+    image_out = morphology.remove_small_objects(image_bin, 500)
+    image_out = morphology.remove_small_holes(image_out, 800)
+
+    return image_out
+
+
+def cv_egi_mask(image, thresh=40):
+    image_np = np.array(image).astype(np.float32)
+    image_np = 2 * image_np[:, :, 1] - image_np[:, :, 0] - image_np[:, :, 2]
+
+    image_gf = cv.GaussianBlur(src=image_np, ksize=(0, 0), sigmaX=3)
+
+    image_bin = image_gf > thresh
+
+    nb_components, output, stats, _ = cv.connectedComponentsWithStats(image_bin.astype(np.uint8), connectivity=8)
+
+    sizes = stats[1:, -1]
+    nb_components = nb_components - 1
+
+    img_out = np.zeros((output.shape))
+
+    for i in range(0, nb_components):
+        if sizes[i] >= 500:
+            img_out[output == i + 1] = 255
+
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
+    image_morph = cv.morphologyEx(img_out, op=cv.MORPH_CLOSE, kernel=kernel)
+
+    return image_morph
+
+
 def scatter3d(image, egi_mask):
     x_rand = np.random.randint(0, 2448, 4000)
     y_rand = np.random.randint(0, 2048, 4000)
@@ -68,8 +104,8 @@ def compute_struct_tensor(image_path, w, sigma=1.5):
         border_type = cv.BORDER_REFLECT
 
         # Gradients
-        Gx  = cv.Sobel(img, cv.CV_32F, 1, 0, 3, borderType=border_type)
-        Gy  = cv.Sobel(img, cv.CV_32F, 0, 1, 3, borderType=border_type)
+        Gx = cv.Sobel(img, cv.CV_32F, 1, 0, 3, borderType=border_type)
+        Gy = cv.Sobel(img, cv.CV_32F, 0, 1, 3, borderType=border_type)
 
         # Filtered Structure Tensor Components
         Axx = cv.GaussianBlur(Gx * Gx, ksize=(0, 0), sigmaX=sigma, sigmaY=sigma, borderType=border_type)
@@ -90,6 +126,12 @@ def compute_struct_tensor(image_path, w, sigma=1.5):
         img_orientation = 0.5 * cv.phase(Axx - Ayy, 2.0 * Axy, angleInDegrees=True)
 
         return img_coherency, img_orientation
+
+
+# image = cv.imread('data/val/im_335.jpg')
+# out = egi_mask_2(image)
+# plt.imshow(out)
+# plt.show()
 
 # image = io.imread("data/carotte.jpg")
 # mask = egi_mask(image)

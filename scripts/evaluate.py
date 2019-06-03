@@ -3,8 +3,9 @@ import subprocess
 
 eval_folder = "backup/"
 cfg_file    = "cfg/yolov3-tiny_obj.cfg"
-data_file   = "data/train-val_3_classes/obj_2.data"
+data_file   = "data/obj.data"
 labels      = {0: 'mais', 1: 'haricot', 2: 'carotte'}
+# labels = {0: 'tige_mais', 1: 'tige_haricot'}
 
 cwd = '/home/deepwater/github/darknet/'
 
@@ -17,7 +18,6 @@ results = []
 for network in networks:
     network_path = os.path.join(eval_folder, network)
     command = "./darknet detector map {} {} {}".format(data_file, cfg_file, network_path)
-
     process = subprocess.Popen(command.split(), stdout=subprocess.PIPE, cwd=cwd)
     output, error = process.communicate()
 
