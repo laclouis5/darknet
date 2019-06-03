@@ -4,11 +4,12 @@
 *.csv
 *.out
 *.png
+*.mp4
+*.avi
 *.so
 *.exe
 *.dll
 mnist/
-data/
 caffe/
 grasp/
 images/
@@ -16,11 +17,10 @@ opencv/
 convnet/
 decaf/
 submission/
-cfg/
-backup/
+data/
 save/
-models/
 results/
+models/
 build/darknet/*
 build_*/
 !build/darknet/YoloWrapper.cs

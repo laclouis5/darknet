@@ -655,8 +655,7 @@ def cv_egi_mask(image, thresh=40):
     image_np = np.array(image).astype(np.float32)
     image_np = 2 * image_np[:, :, 1] - image_np[:, :, 0] - image_np[:, :, 2]
 
-    image_gf = cv.GaussianBlur(src=image_np, ksize=(0, 0), sigmaX=3)
-
+    image_gf  = cv.GaussianBlur(src=image_np, ksize=(0, 0), sigmaX=3)
     image_bin = image_gf > thresh
 
     nb_components, output, stats, _ = cv.connectedComponentsWithStats(image_bin.astype(np.uint8), connectivity=8)
