@@ -1,9 +1,12 @@
 *.o
+*.a
 *.dSYM
 *.csv
 *.out
 *.png
 *.so
+*.exe
+*.dll
 mnist/
 data/
 caffe/
@@ -19,8 +22,10 @@ save/
 models/
 results/
 build/darknet/*
+build_*/
 !build/darknet/YoloWrapper.cs
 .fuse*
+*.weights
 
 # OS Generated #
 .DS_Store*
@@ -28,3 +33,11 @@ ehthumbs.db
 Icon?
 Thumbs.db
 *.swp
+
+# IDE generated #
+.vs/
+.vscode/
+
+lib/
+include/
+share/

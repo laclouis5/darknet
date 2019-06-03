@@ -2,10 +2,6 @@
 #include "utils.h"
 #include "parser.h"
 
-#ifdef OPENCV
-#include <opencv2/highgui/highgui_c.h>
-#endif
-
 void train_writing(char *cfgfile, char *weightfile)
 {
     char* backup_directory = "backup/";
@@ -69,7 +65,7 @@ void train_writing(char *cfgfile, char *weightfile)
 
         if(avg_loss == -1) avg_loss = loss;
         avg_loss = avg_loss*.9 + loss*.1;
-        printf("%d, %.3f: %f, %f avg, %f rate, %lf seconds, %d images\n", get_current_batch(net), (float)(*net.seen)/N, loss, avg_loss, get_current_rate(net), sec(clock()-time), *net.seen);
+        printf("%d, %.3f: %f, %f avg, %f rate, %lf seconds, %ld images\n", get_current_batch(net), (float)(*net.seen)/N, loss, avg_loss, get_current_rate(net), sec(clock()-time), *net.seen);
         free_data(train);
         if(get_current_batch(net)%100 == 0){
             char buff[256];
@@ -122,10 +118,9 @@ void test_writing(char *cfgfile, char *weightfile, char *filename)
 
         show_image(pred, "prediction");
         show_image(im, "orig");
-#ifdef OPENCV
-        cvWaitKey(0);
-        cvDestroyAllWindows();
-#endif
+
+        wait_until_press_key_cv();
+        destroy_all_windows_cv();
 
         free_image(upsampled);
         free_image(thresh);
