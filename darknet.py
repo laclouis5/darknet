@@ -26,6 +26,7 @@ Windows Python 2.7 version: https://github.com/AlexeyAB/darknet/blob/fc496d52bf2
 @author: Philip Kahn
 @date: 20180503
 """
+
 #pylint: disable=R, W0401, W0614, W0703
 from ctypes import *
 import math
@@ -751,6 +752,7 @@ if __name__ == "__main__":
 
     consort  = 'bipbip'
     save_dir = 'save/'
+    # save_dir = /Users/louislac/Downloads/save/
 
     plant_to_keep = []
 
