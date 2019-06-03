@@ -31,10 +31,16 @@ from ctypes import *
 import math
 import random
 import os
+import datetime
 
-import cv2 as cv
-# from lib.BoundingBox import BoundingBox
-# from lib.BoundingBoxes import BoundingBoxes
+import matplotlib.pyplot as plt
+import numpy as np
+# import cv2 as cv
+from PIL import Image
+from skimage import io, filters, morphology
+from joblib import Parallel, delayed
+
+from lxml.etree import Element, SubElement, tostring, parse
 
 def sample(probs):
     s = sum(probs)
@@ -76,6 +82,173 @@ class METADATA(Structure):
     _fields_ = [("classes", c_int),
                 ("names", POINTER(c_char_p))]
 
+
+class XMLTree:
+    def __init__(self, image_name, width, height, user_name='Unknown user', date=str(datetime.date.today())):
+        """
+        Creates a ElementTree containing results of classification.
+
+        Arguments:
+        image_name -- String containing the name of the source image used for classification.
+        width      -- Image width (integer).
+        height     -- Image height (integer).
+        user_name  -- String containing the name of the participant.
+        date       -- String containing the result production date (YYYY-DD-MM).
+
+        Returns:
+        A ElementTree Element
+
+        For additional information about format please refer to 'PE_ROSE_dryrn.pdf'
+        """
+
+        # Root node
+        self.tree = Element('GEDI')
+
+        # First level nodes
+        document = SubElement(self.tree, 'DL_DOCUMENT')
+        user = SubElement(self.tree, 'USER')
+
+        # Second level nodes
+        src = SubElement(document, 'SRC')
+        tag = SubElement(document, 'DOC_TAG')
+        w = SubElement(document, 'WIDTH')
+        h = SubElement(document, 'HEIGHT')
+
+        _name = SubElement(user, 'NAME')
+        _date = SubElement(user, 'DATE')
+
+        # Fill info
+        src.text = image_name
+        tag.text = 'xml'
+        w.text = str(width)
+        h.text = str(height)
+
+        _name.text = user_name
+        _date.text = date
+
+
+    def add_mask_zone(self, plant_type, bbox, name=''):
+        """
+        Creates new mask zones in the input tree.
+
+        Arguments:
+        tree       -- The ElementTree to be filled with mask info.
+        plant_type -- String containing the type of plant (either 'Adventice' or 'PlanteInteret')
+        name       -- String (optional), plant name.
+        """
+        # Go to 'DL_DOCUMENT' node & retreive mask ID
+        doc_node = self.tree.find('DL_DOCUMENT')
+        nb_masks = self.get_next_mask_id()
+
+        # Create new mask
+        mask = Element('MASK_ZONE')
+        _id = SubElement(mask, 'ID')
+        _type = SubElement(mask, 'TYPE')
+        _name = SubElement(mask, 'NAME')
+        _bndbox = SubElement(mask, 'BNDBOX')
+
+        _xmin = SubElement(_bndbox, 'XMIN')
+        _ymin = SubElement(_bndbox, 'YMIN')
+        _xmax = SubElement(_bndbox, 'XMAX')
+        _ymax = SubElement(_bndbox, 'YMAX')
+
+        # Fill info & append
+        _id.text = str(nb_masks)
+        _type.text = plant_type
+        _name.text = name
+
+        _xmin.text = str(bbox[0])
+        _ymin.text = str(bbox[1])
+        _xmax.text = str(bbox[2])
+        _ymax.text = str(bbox[3])
+
+        doc_node.append(mask)
+
+
+    def get_next_mask_id(self):
+        """
+        Return the next unique ID for masks.
+        """
+
+        # Go to 'DL_DOCUMENT' node
+        doc_node = self.tree.find('DL_DOCUMENT')
+
+        # Compute new mask index
+        masks_list = doc_node.findall('MASK_ZONE')
+        return len(masks_list)
+
+
+    def get_current_mask_id(self):
+        return self.get_next_mask_id() - 1
+
+
+    def save(self, xml_file_name):
+        """
+        Saves to disk the tree to XML file.
+
+        Arguments:
+        tree -- The ElementTree Element to save.
+        xml_file_name -- String containing the name of the XML file. See 'PE_ROSE_dryrn.pdf' for more information.
+        """
+
+        # TreeElement to string representation
+        tree_str = tostring(self.tree, encoding='unicode', pretty_print=True)
+
+        # Write data
+        with open(xml_file_name, 'w') as xml_file:
+            xml_file.write(tree_str)
+
+
+    def clean_xml(folders):
+        for folder in folders:
+            for file in os.listdir(folder):
+
+                if(os.path.splitext(file)[1] != '.xml'):
+                    continue
+
+                tree = parse(os.path.join(folder, file)).getroot()
+
+                path_field = tree.find('path')
+                path_field.text = os.path.join(folder, file)
+
+                with open(os.path.join(folder, file), 'w') as xml_file:
+                    tree_str = tostring(tree, encoding='unicode', pretty_print=True)
+                    xml_file.write(tree_str)
+
+
+    def xlm_to_csv(folders, classes_to_keep=[], cvs_path=''):
+        with open(os.path.join(csv_path, 'train_data.csv'), 'w') as csv_file:
+            for folder in folders:
+                for file in sorted(os.listdir(folder)):
+                    # Check if XML file
+                    if(os.path.splitext(file)[1] != '.xml'):
+                        continue
+                    # Retreive the XML etree
+                    root = parse(os.path.join(folder, file)).getroot()
+
+                    file_name = root.find('filename').text
+
+                    # Retreive and process each 'object' in the etree
+                    for obj in root.findall('object'):
+                        name = obj.find('name').text
+
+                        # Save only selected classes
+                        # Comment to ignore class selection
+                        if (classes_to_keep.count != 0) and (name not in classes_to_keep):
+                            continue
+
+                        # Retreive bounding box coordinates
+                        bounding_box = obj.find('bndbox')
+                        coords = []
+
+                        for coord in bounding_box.getchildren():
+                            coords.append(int(coord.text))
+
+                        # Write CSV file
+                        csv_file.write(os.path.join(folder, file_name) + ',')
+                        for coord in coords:
+                            csv_file.write(str(coord) + ',')
+                        csv_file.write(name + '\n')
 
 
 #lib = CDLL("/home/pjreddie/documents/darknet/libdarknet.so", RTLD_GLOBAL)
@@ -466,31 +639,6 @@ def save_detect_to_txt(images, save_dir, model_path, cfg_path, data_path):
                 f.write(line)
 
 
-def convertBack(x, y, w, h):
-    xmin = int(round(x - (w / 2)))
-    xmax = int(round(x + (w / 2)))
-    ymin = int(round(y - (h / 2)))
-    ymax = int(round(y + (h / 2)))
-    return xmin, ymin, xmax, ymax
-
-
-def cvDrawBoxes(detections, img):
-    for detection in detections:
-        x, y, w, h =  detection[2][0],\
-            detection[2][1],\
-            detection[2][2],\
-            detection[2][3]
-        xmin, ymin, xmax, ymax = convertBack(
-            float(x), float(y), float(w), float(h))
-        pt1 = (xmin, ymin)
-        pt2 = (xmax, ymax)
-
-        colors = (255, 128, 64)
-
-        cv.rectangle(img, pt1, pt2, colors, 10)
-    return img
-
-
 def detect_on_folder(images, save_dir, model_path, cfg_path, data_path):
     names = [os.path.split(image)[1] for image in images]
     names = [os.path.join(save_dir, os.path.splitext(name)[0] + ('.jpg')) for name in names]
@@ -502,13 +650,60 @@ def detect_on_folder(images, save_dir, model_path, cfg_path, data_path):
         cv.imwrite(names[i], img_out)
 
 
-def create_operose_result(image, plant_to_keep=[]):
+def convertBack(x, y, w, h):
+    xmin = int(round(x - (w / 2)))
+    xmax = int(round(x + (w / 2)))
+    ymin = int(round(y - (h / 2)))
+    ymax = int(round(y + (h / 2)))
+    return xmin, ymin, xmax, ymax
+
+
+def cv_egi_mask(image, thresh=40):
+    image_np = np.array(image).astype(np.float32)
+    image_np = 2 * image_np[:, :, 1] - image_np[:, :, 0] - image_np[:, :, 2]
+
+    image_gf = cv.GaussianBlur(src=image_np, ksize=(0, 0), sigmaX=3)
+
+    image_bin = image_gf > thresh
+
+    nb_components, output, stats, _ = cv.connectedComponentsWithStats(image_bin.astype(np.uint8), connectivity=8)
+
+    sizes = stats[1:, -1]
+    nb_components = nb_components - 1
+
+    img_out = np.zeros((output.shape))
+
+    for i in range(0, nb_components):
+        if sizes[i] >= 500:
+            img_out[output == i + 1] = 255
+
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
+    image_morph = cv.morphologyEx(img_out, op=cv.MORPH_CLOSE, kernel=kernel)
+
+    return image_morph
+
+
+def egi_mask(image, thresh=40):
+    image_np  = np.array(image).astype(float)
+    image_egi = 2 * image_np[:, :, 1] - image_np[:, :, 0] - image_np[:, :, 2]
+    image_gf  = filters.gaussian(image_egi, sigma=1, mode='reflect')
+    image_bin = image_gf > thresh
+
+    image_morph = morphology.remove_small_objects(image_bin, 400)
+    image_out   = morphology.remove_small_holes(image_morph, 800)
+
+    return image_out
+
+
+def create_operose_result(image):
     # Creates and populate XML tree, save plant masks as PGM and XLM file
     # for each images
 
     img_name  = os.path.split(os.path.splitext(image)[0])[1]
-    image_egi = egi_mask(cv.imread(image))
+    image_egi = egi_mask(io.imread(image))
     im_in     = Image.fromarray(np.uint8(255 * image_egi))
+    # image_egi = cv_egi_mask(cv.imread(image))
+    # im_in     = Image.fromarray(image_egi)
 
     h, w = image_egi.shape
 
@@ -534,12 +729,10 @@ def create_operose_result(image, plant_to_keep=[]):
         if (name not in plant_to_keep) and plant_to_keep: continue
 
         bbox = detection[2]
-        xmin, xmax, ymin, ymax = convertBack(bbox[0], bbox[1], bbox[2], bbox[3])
-        bbox = (xmin, ymin, xmax, ymax)
-
-        xml_tree.add_mask_zone(plant_type='PlanteInteret', bbox=bbox, name=name)
-
+        xmin, ymin, xmax, ymax = convertBack(bbox[0], bbox[1], bbox[2], bbox[3])
         box = (xmin, ymin, xmax, ymax)
+
+        xml_tree.add_mask_zone(plant_type='PlanteInteret', bbox=box, name=name)
 
         im_out = Image.new(mode='1', size=(w, h))
         region = im_in.crop(box)
@@ -558,20 +751,13 @@ def create_operose_result(image, plant_to_keep=[]):
 
 
 if __name__ == "__main__":
-    from my_xml_toolbox import XMLTree
-    from test import egi_mask
-    import matplotlib.pyplot as plt
-    import numpy as np
-    from PIL import Image
-    from joblib import Parallel, delayed
-
     image_path  = "data/val/"
-    model_path  = "results/yolov3-tiny_7/yolov3-tiny_obj_4500.weights"
-    config_file = "results/yolov3-tiny_7/yolov3-tiny_obj.cfg"
-    meta_path   = "results/yolov3-tiny_7/obj.data"
+    model_path  = "results/yolov3-tiny_8/yolov3-tiny_obj_7400.weights"
+    config_file = "results/yolov3-tiny_8/yolov3-tiny_obj.cfg"
+    meta_path   = "results/yolov3-tiny_8/obj.data"
 
     consort  = 'bipbip'
-    save_dir = 'masks/'
+    save_dir = 'save/'
 
     plant_to_keep = []
 
@@ -580,14 +766,6 @@ if __name__ == "__main__":
     images = [os.path.join(image_path, item) for item in images if os.path.splitext(item)[1] == ".jpg"]
 
     # Parallel computation for every images
-    Parallel(
-        n_jobs=1,
-        backend="multiprocessing")(map(
-            delayed(create_operose_result),
-            images,
-            [plant_to_keep for _ in range(len(images))]))
-
-    # plt.imshow(image_egi, cmap="gray")
-    # plt.show()
-
-    # detect_on_folder(images, "save/", model_path, config_file, meta_path)
+    Parallel(n_jobs=-1, backend="multiprocessing")(map(
+        delayed(create_operose_result),
+        images))
