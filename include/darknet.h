@@ -36,12 +36,12 @@
 
 #ifdef GPU
 
-#include "cuda_runtime.h"
-#include "curand.h"
-#include "cublas_v2.h"
+#include <cuda_runtime.h>
+#include <curand.h>
+#include <cublas_v2.h>
 
 #ifdef CUDNN
-#include "cudnn.h"
+#include <cudnn.h>
 #endif
 #endif
 
@@ -104,6 +104,11 @@ typedef struct tree {
 typedef enum {
     LOGISTIC, RELU, RELIE, LINEAR, RAMP, TANH, PLSE, LEAKY, ELU, LOGGY, STAIR, HARDTAN, LHTAN, SELU
 }ACTIVATION;
+
+// parser.h
+typedef enum {
+    IOU, GIOU, MSE
+} IOU_LOSS;
 
 // image.h
 typedef enum{
@@ -308,6 +313,11 @@ struct layer {
 
     float *weights;
     float *weight_updates;
+
+    float scale_x_y;
+    float iou_normalizer;
+    float cls_normalizer;
+    IOU_LOSS iou_loss;
 
     char *align_bit_weights_gpu;
     float *mean_arr_gpu;
@@ -585,6 +595,7 @@ typedef struct network {
     int center;
     int flip; // horizontal flip 50% probability augmentaiont for classifier training (default = 1)
     int blur;
+    int mixup;
     float angle;
     float aspect;
     float exposure;
@@ -672,6 +683,24 @@ typedef struct box {
 } box;
 
 // box.h
+typedef struct boxabs {
+    float left, right, top, bot;
+} boxabs;
+
+// box.h
+typedef struct dxrep {
+    float dt, db, dl, dr;
+} dxrep;
+
+// box.h
+typedef struct ious {
+    float iou, giou;
+    dxrep dx_iou;
+    dxrep dx_giou;
+} ious;
+
+
+// box.h
 typedef struct detection{
     box bbox;
     int classes;
@@ -731,6 +760,7 @@ typedef struct load_args {
     float jitter;
     int flip;
     int blur;
+    int mixup;
     float angle;
     float aspect;
     float saturation;
