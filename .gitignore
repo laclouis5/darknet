@@ -4,6 +4,9 @@
 *.csv
 *.out
 *.png
+*.mp4
+*.avi
+*.mov
 *.so
 *.exe
 *.dll
