@@ -1,6 +1,1 @@
-
-
-./darknet detector demo ./cfg/coco.data ./cfg/yolov3.cfg ./yolov3.weights test50.mp4 -i 0 -thresh 0.25
-
-
-
+./darknet detector demo results/yolov3-tiny_8/obj.data results/yolov3-tiny_8/yolov3-tiny_obj.cfg results/yolov3-tiny_8/yolov3-tiny_obj_7400.weights GOPR1246.mov -out_filename GOPR1246_out.mp4 -thresh 0.25
