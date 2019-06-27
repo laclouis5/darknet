@@ -3,6 +3,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import cv2 as cv
+import os
+from BoundingBox import BoundingBox
+from BoundingBoxes import BoundingBoxes
+from utils import *
+from PIL import Image
 
 def egi_mask(image, thresh=1.15):
     image_np = np.array(image).astype(float)
@@ -126,6 +131,35 @@ def compute_struct_tensor(image_path, w, sigma=1.5):
         img_orientation = 0.5 * cv.phase(Axx - Ayy, 2.0 * Axy, angleInDegrees=True)
 
         return img_coherency, img_orientation
+
+
+def read_txt_annotation_file(file_path, img_size):
+    bounding_boxes = BoundingBoxes(bounding_boxes=[])
+    image_name = os.path.basename(os.path.splitext(file_path)[0] + '.jpg')
+
+    with open(file_path, 'r') as f:
+        content = f.readlines()
+        content = [line.strip().split() for line in content]
+
+    for det in content:
+        (label, x, y, w, h) = int(det[0]), float(det[1]), float(det[2]), float(det[3]), float(det[4])
+        bounding_boxes.addBoundingBox(BoundingBox(imageName=image_name, classId=label, x=x, y=y, w=w, h=h, typeCoordinates=CoordinatesType.Relative, imgSize=img_size))
+
+    return bounding_boxes
+
+
+def parse_yolo_folder(data_dir):
+    annotations = os.listdir(data_dir)
+    annotations = [os.path.join(data_dir, item) for item in annotations if os.path.splitext(item)[1] == '.txt']
+    images = [os.path.splitext(item)[0] + '.jpg' for item in annotations]
+    bounding_boxes = BoundingBoxes(bounding_boxes=[])
+
+    for (img, annot) in zip(images, annotations):
+        img_size = Image.open(img).size
+        image_boxes = read_txt_annotation_file(annot, img_size)
+        [bounding_boxes.addBoundingBox(bb) for bb in image_boxes.getBoundingBoxes()]
+
+    return bounding_boxes
 
 
 # image = cv.imread('data/val/im_335.jpg')

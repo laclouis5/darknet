@@ -608,14 +608,65 @@ def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yo
                 "image": image,
                 "caption": "\n<br/>".join(imcaption)
             }
+            print(detections)
         except Exception as e:
             print("Unable to show image: "+str(e))
     return detections
 
 
+def convertBack(x, y, w, h):
+    xmin = int(round(x - (w / 2)))
+    xmax = int(round(x + (w / 2)))
+    ymin = int(round(y - (h / 2)))
+    ymax = int(round(y + (h / 2)))
+    return xmin, ymin, xmax, ymax
+
+
+from BoundingBox import BoundingBox
+from BoundingBoxes import BoundingBoxes
+from Evaluator import Evaluator
+from test import read_txt_annotation_file, parse_yolo_folder
+from utils import *
+
+def compute_mean_average_precision(folder, model, config_file, data_obj):
+    files = os.listdir(folder)
+    images = [os.path.join(folder, file) for file in files if os.path.splitext(file)[1] == '.jpg']
+
+    bounding_boxes = parse_yolo_folder(folder)
+    bounding_boxes.mapLabels({0: "mais", 1: 'haricot', 2: 'carotte'})
+
+    for image in images:
+        detections = performDetect(
+            imagePath=image,
+            configPath=config_file,
+            weightPath=model,
+            metaPath=data_obj,
+            showImage=False)
+
+        img_size = Image.open(image).size
+
+        for detection in detections:
+            label, conf = detection[0], detection[1]
+            # Abs XYX2Y2
+            x_min, y_min, x_max, y_max = convertBack(*detection[2])
+
+            bounding_boxes.addBoundingBox(BoundingBox(
+                imageName=os.path.basename(image),
+                classId=label,
+                x=x_min, y=y_min, w=x_max, h=y_max,
+                bbType=BBType.Detected, classConfidence=conf,
+                format=BBFormat.XYX2Y2,
+                imgSize=img_size))
+
+    evaluator = Evaluator()
+    metrics = evaluator.GetPascalVOCMetrics(bounding_boxes)
+    for item in metrics:
+        print("{} - mAP: {:.4} %, TP: {}, FP: {}, tot. pos.: {}".format(item['class'], 100*item['AP'], item["total TP"], item["total FP"], item["total positives"]))
+
+
 def save_detect_to_txt(images, save_dir, model_path, cfg_path, data_path):
     names = [os.path.split(image)[1] for image in images]
-    names = [os.path.join(save_dir, os.path.splitext(name)[0] + ('.txt')) for name in names]
+    names = [os.path.join(save_dir, os.path.splitext(name)[0]) + '.txt' for name in names]
 
     for i, image in enumerate(images):
         detections = performDetect(imagePath=image, configPath=cfg_path, weightPath=model_path, metaPath=data_path, showImage=False)
@@ -623,11 +674,7 @@ def save_detect_to_txt(images, save_dir, model_path, cfg_path, data_path):
         with open(names[i], 'w') as f:
             for detection in detections:
                 box   = detection[2]
-                x_min = round(box[0] - box[2]/2)
-                y_min = round(box[1] - box[3]/2)
-                x_max = round(box[2])
-                y_max = round(box[3])
-
+                (x_min, y_min, x_max, y_max) = convertBack(box[0], box[1], box[2], box[3])
                 line = "{} {:.4} {} {} {} {}\n".format(detection[0], detection[1], x_min, y_min, x_max, y_max)
 
                 f.write(line)
@@ -642,14 +689,6 @@ def detect_on_folder(images, save_dir, model_path, cfg_path, data_path):
         img_out = cvDrawBoxes(detections, cv.imread(image))
 
         cv.imwrite(names[i], img_out)
-
-
-def convertBack(x, y, w, h):
-    xmin = int(round(x - (w / 2)))
-    xmax = int(round(x + (w / 2)))
-    ymin = int(round(y - (h / 2)))
-    ymax = int(round(y + (h / 2)))
-    return xmin, ymin, xmax, ymax
 
 
 def cv_egi_mask(image, thresh=40):
@@ -759,7 +798,13 @@ if __name__ == "__main__":
     images = os.listdir(image_path)
     images = [os.path.join(image_path, item) for item in images if os.path.splitext(item)[1] == ".jpg"]
 
+    compute_mean_average_precision(
+        folder=image_path,
+        model=model_path,
+        config_file=config_file,
+        data_obj=meta_path)
+
     # Parallel computation for every images
-    Parallel(n_jobs=-1, backend="multiprocessing")(map(
-        delayed(create_operose_result),
-        images))
+    # Parallel(n_jobs=-1, backend="multiprocessing")(map(
+    #     delayed(create_operose_result),
+    #     images))
