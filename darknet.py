@@ -668,7 +668,11 @@ def compute_mean_average_precision(folder, model, config_file, data_obj):
     evaluator = Evaluator()
     metrics = evaluator.GetPascalVOCMetrics(bounding_boxes)
     for item in metrics:
+        (prec,  rec) = item["precision"], item["recall"]
         print("{} - mAP: {:.4} %, TP: {}, FP: {}, tot. pos.: {}".format(item['class'], 100*item['AP'], item["total TP"], item["total FP"], item["total positives"]))
+
+        print(prec)
+        print(rec)
 
 
 def save_detect_to_txt(images, save_dir, model_path, cfg_path, data_path):
