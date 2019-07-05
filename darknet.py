@@ -664,9 +664,6 @@ def compute_mean_average_precision(folder, model, config_file, data_obj):
         (prec,  rec) = item["precision"], item["recall"]
         print("{} - mAP: {:.4} %, TP: {}, FP: {}, tot. pos.: {}".format(item['class'], 100*item['AP'], item["total TP"], item["total FP"], item["total positives"]))
 
-        print(prec)
-        print(rec)
-
 
 def save_detect_to_txt(images, save_dir, model_path, cfg_path, data_path):
     names = [os.path.split(image)[1] for image in images]
@@ -679,9 +676,33 @@ def save_detect_to_txt(images, save_dir, model_path, cfg_path, data_path):
             for detection in detections:
                 box   = detection[2]
                 (x_min, y_min, x_max, y_max) = convertBack(box[0], box[1], box[2], box[3])
-                line = "{} {:.4} {} {} {} {}\n".format(detection[0], detection[1], x_min, y_min, x_max, y_max)
+                line = "{} {:.6} {} {} {} {}\n".format(detection[0], detection[1], x_min, y_min, x_max, y_max)
 
                 f.write(line)
+
+
+def convert_yolo_annot_to_XYX2Y2(annotation_dir, save_dir, lab_to_name):
+    annotations = [os.path.join(annotation_dir, item) for item in os.listdir(annotation_dir) if os.path.splitext(item)[1] == '.txt']
+    images = [os.path.splitext(item)[0] + '.jpg' for item in annotations]
+
+    for (image, annotation) in zip(images, annotations):
+        (img_w, img_h) = Image.open(image).size
+        # print('Image:      {}'.format(image))
+        # print('Annotation: {}'.format(annotation))
+        # print('Image Size: {} x {}'.format(img_w, img_h))
+
+        with open(annotation, 'r') as f:
+            content = f.readlines()
+        content = [item.strip() for item in content]
+
+        with open(os.path.join(save_dir, os.path.basename(annotation)), 'w') as fw:
+            for line in content:
+                line = line.split(' ')
+                (label, x, y, w, h) = int(line[0]), float(line[1]), float(line[2]), float(line[3]), float(line[4])
+                # print('Line:       {} {:.4} {:.4} {:.4} {:.4}'.format(int(line[0]), float(line[1]), float(line[2]), float(line[3]), float(line[4])))
+                (xmin, ymin, xmax, ymax) = convertBack(x*img_w, y*img_h, w*img_w, h*img_h)
+                fw.write('{} {} {} {} {}\n'.format(lab_to_name[label], xmin+1, ymin+1, xmax+1, ymax+1))
+                # print('Line save:  {} {} {} {} {}'.format(lab_to_name[label], xmin, ymin, xmax, ymax))
 
 
 def detect_on_folder(images, save_dir, model_path, cfg_path, data_path):
@@ -765,6 +786,9 @@ def create_operose_result(image):
         if (name not in plant_to_keep) and plant_to_keep: continue
 
         bbox = detection[2]
+        # print('Annotation: {}'.format(annotation))
+        # print('Image Size: {} x {}'.format(img_w, img_h))
+
         xmin, ymin, xmax, ymax = convertBack(bbox[0], bbox[1], bbox[2], bbox[3])
         box = (xmin, ymin, xmax, ymax)
 
@@ -790,10 +814,11 @@ if __name__ == "__main__":
     image_path  = "data/val/"
     model_path  = "results/yolov3-tiny_8/yolov3-tiny_obj_7400.weights"
     config_file = "results/yolov3-tiny_8/yolov3-tiny_obj.cfg"
-    meta_path   = "results/yolov3-tiny_8/obj.data"
+    meta_path   = "data/obj.data"
 
     consort  = 'bipbip'
     save_dir = 'save/'
+    labels_to_names = ['mais', 'haricot', 'carotte']
     # save_dir = /Users/louislac/Downloads/save/
 
     plant_to_keep = []
@@ -802,11 +827,14 @@ if __name__ == "__main__":
     images = os.listdir(image_path)
     images = [os.path.join(image_path, item) for item in images if os.path.splitext(item)[1] == ".jpg"]
 
-    compute_mean_average_precision(
-        folder=image_path,
-        model=model_path,
-        config_file=config_file,
-        data_obj=meta_path)
+    # compute_mean_average_precision(
+    #     folder=image_path,
+    #     model=model_path,
+    #     config_file=config_file,
+    #     data_obj=meta_path)
+
+    save_detect_to_txt(images, save_dir+'detection-results/', model_path, config_file, meta_path)
+    convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
 
     # Parallel computation for every images
     # Parallel(n_jobs=-1, backend="multiprocessing")(map(
