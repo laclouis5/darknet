@@ -36,7 +36,7 @@ import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
-# import cv2 as cv
+import cv2 as cv
 from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
@@ -622,47 +622,47 @@ def convertBack(x, y, w, h):
     return xmin, ymin, xmax, ymax
 
 
-from BoundingBox import BoundingBox
-from BoundingBoxes import BoundingBoxes
-from Evaluator import Evaluator
-from test import read_txt_annotation_file, parse_yolo_folder
-from utils import *
-
-def compute_mean_average_precision(folder, model, config_file, data_obj):
-    files = os.listdir(folder)
-    images = [os.path.join(folder, file) for file in files if os.path.splitext(file)[1] == '.jpg']
-
-    bounding_boxes = parse_yolo_folder(folder)
-    bounding_boxes.mapLabels({0: "mais", 1: 'haricot', 2: 'carotte'})
-
-    for image in images:
-        detections = performDetect(
-            imagePath=image,
-            configPath=config_file,
-            weightPath=model,
-            metaPath=data_obj,
-            showImage=False)
-
-        img_size = Image.open(image).size
-
-        for detection in detections:
-            label, conf = detection[0], detection[1]
-            # Abs XYX2Y2
-            x_min, y_min, x_max, y_max = convertBack(*detection[2])
-
-            bounding_boxes.addBoundingBox(BoundingBox(
-                imageName=os.path.basename(image),
-                classId=label,
-                x=x_min, y=y_min, w=x_max, h=y_max,
-                bbType=BBType.Detected, classConfidence=conf,
-                format=BBFormat.XYX2Y2,
-                imgSize=img_size))
-
-    evaluator = Evaluator()
-    metrics = evaluator.GetPascalVOCMetrics(bounding_boxes)
-    for item in metrics:
-        (prec,  rec) = item["precision"], item["recall"]
-        print("{} - mAP: {:.4} %, TP: {}, FP: {}, tot. pos.: {}".format(item['class'], 100*item['AP'], item["total TP"], item["total FP"], item["total positives"]))
+# from BoundingBox import BoundingBox
+# from BoundingBoxes import BoundingBoxes
+# from Evaluator import Evaluator
+# from test import read_txt_annotation_file, parse_yolo_folder
+# from utils import *
+#
+# def compute_mean_crop_annotation_to_squareaverage_precision(folder, model, config_file, data_obj):
+#     files = os.listdir(folder)
+#     images = [os.path.join(folder, file) for file in files if os.path.splitext(file)[1] == '.jpg']
+#
+#     bounding_boxes = parse_yolo_folder(folder)
+#     bounding_boxes.mapLabels({0: "mais", 1: 'haricot', 2: 'carotte'})
+#
+#     for image in images:
+#         detections = performDetect(
+#             imagePath=image,
+#             configPath=config_file,
+#             weightPath=model,
+#             metaPath=data_obj,
+#             showImage=False)
+#
+#         img_size = Image.open(image).size
+#
+#         for detection in detections:
+#             label, conf = detection[0], detection[1]
+#             # Abs XYX2Y2
+#             x_min, y_min, x_max, y_max = convertBack(*detection[2])
+#
+#             bounding_boxes.addBoundingBox(BoundingBox(
+#                 imageName=os.path.basename(image),
+#                 classId=label,
+#                 x=x_min, y=y_min, w=x_max, h=y_max,
+#                 bbType=BBType.Detected, classConfidence=conf,
+#                 format=BBFormat.XYX2Y2,
+#                 imgSize=img_size))
+#
+#     evaluator = Evaluator()
+#     metrics = evaluator.GetPascalVOCMetrics(bounding_boxes)
+#     for item in metrics:
+#         (prec,  rec) = item["precision"], item["recall"]
+#         print("{} - mAP: {:.4} %, TP: {}, FP: {}, tot. pos.: {}".format(item['class'], 100*item['AP'], item["total TP"], item["total FP"], item["total positives"]))
 
 
 def save_detect_to_txt(images, save_dir, model_path, cfg_path, data_path):
@@ -687,9 +687,9 @@ def convert_yolo_annot_to_XYX2Y2(annotation_dir, save_dir, lab_to_name):
 
     for (image, annotation) in zip(images, annotations):
         (img_w, img_h) = Image.open(image).size
-        # print('Image:      {}'.format(image))
-        # print('Annotation: {}'.format(annotation))
-        # print('Image Size: {} x {}'.format(img_w, img_h))
+        print('Image:      {}'.format(image))
+        print('Annotation: {}'.format(annotation))
+        print('Image Size: {} x {}'.format(img_w, img_h))
 
         with open(annotation, 'r') as f:
             content = f.readlines()
@@ -705,9 +705,133 @@ def convert_yolo_annot_to_XYX2Y2(annotation_dir, save_dir, lab_to_name):
                 # print('Line save:  {} {} {} {} {}'.format(lab_to_name[label], xmin, ymin, xmax, ymax))
 
 
+def crop_annotation_to_square(annot_folder, save_dir, lab_to_name):
+    annotations = [os.path.join(annot_folder, item) for item in os.listdir(annot_folder) if os.path.splitext(item)[1] == '.txt']
+
+    for annotation in annotations:
+        content_out = []
+        corresp_img = os.path.splitext(annotation)[0] + '.jpg'
+        (img_w, img_h) = Image.open(corresp_img).size
+
+        print("In landscape mode: {} by {}".format(img_w, img_h))
+        # Here are abs coords of square bounds (left and right)
+        (w_lim_1, w_lim_2) = round(float(img_w)/2 - float(img_h)/2), round(float(img_w)/2 + float(img_h)/2)
+
+        with open(annotation, 'r') as f:
+            print("Reading annotation...")
+            content = f.readlines()
+            content = [line.strip() for line in content]
+
+            for line in content:
+                print("Reading a line...")
+                line = line.split()
+                # Get relative coords (in old coords system)
+                (label, x, y, w, h) = int(line[0]), float(line[1]), float(line[2]), float(line[3]), float(line[4])
+                print("Line is: {} {} {} {} {}".format(label, x, y, w, h))
+
+                # If bbox is not out of the new square frame
+                if not (x*img_w < w_lim_1 or x*img_w > w_lim_2):
+                    print("In square bounds")
+                    # But if bbox spans out of one bound (l or r)
+                    if (x - w/2.0) < (float(w_lim_1)/img_w):
+                        print("Spans out of left bound")
+                        # Then adjust bbox to fit in the square
+                        w = w - (float(w_lim_1)/img_w - (x - w/2.0))
+                        x = float(w_lim_1+1)/img_w + w/2.0
+                    if (x + w/2.0) > (float(w_lim_2)/img_w):
+                        print("Span out of right bound")
+                        w = w - (x + w/2.0 - float(w_lim_2)/img_w)
+                        x = float(w_lim_2)/img_w - w/2.0
+                    else:
+                        print("Does not spans outside")
+
+                # If out of bounds...
+                else:
+                    print("Out of square bounds")
+                    # ...do not process the line
+                    continue
+
+                # Do not forget to convert from old coord sys to new one
+                x = (x*img_w - float(w_lim_1))/float(w_lim_2 - w_lim_1)
+                w = w*img_w/float(w_lim_2 - w_lim_1)
+
+                assert x >= 0, "Value was {}".format(x)
+                assert x <= 1, "Value was {}".format(x)
+                assert (x - w/2) >= 0, "Value was {}".format(x - w/2)
+                assert (x + w/2) <= 1, "Value was {}".format(x + w/2)
+
+                size = min(img_w, img_h)
+
+                (xmin, ymin, xmax, ymax) = convertBack(x*size, y*size, w*size, h*size)
+
+                new_line = "{} {} {} {} {}\n".format(lab_to_name[label], xmin, ymin, xmax, ymax)
+                content_out.append(new_line)
+
+        # Write updated content to TXt file
+        with open(os.path.join(save_dir, os.path.basename(annotation)), 'w') as f:
+            f.writelines(content_out)
+
+
+def crop_detection_to_square(image_path, save_dir, model, config_file, meta_file):
+    images = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == '.jpg']
+    images.sort()
+
+    for image in images:
+        content_out = []
+        (img_w, img_h) = Image.open(image).size
+        (w_lim_1, w_lim_2) = round(float(img_w)/2 - float(img_h)/2), round(float(img_w)/2 + float(img_h)/2)
+
+        detections = performDetect(
+            imagePath=image,
+            configPath=config_file,
+            weightPath=model,
+            metaPath=meta_file,
+            showImage=False)
+
+        for detection in detections:
+            label = detection[0]
+            prob = detection[1]
+            (x, y, w, h) = detection[2]
+            (x, y, w, h) = (x/img_w, y/img_h, w/img_w, h/img_h)
+
+            # If bbox is not out of the new square frame
+            if not (x*img_w < w_lim_1 or x*img_w > w_lim_2):
+                # But if bbox spans out of one bound (l or r)
+                if (x - w/2.0) < (float(w_lim_1)/img_w):
+                    # Then adjust bbox to fit in the square
+                    w = w - (float(w_lim_1)/img_w - (x - w/2.0))
+                    x = float(w_lim_1+1)/img_w + w/2.0
+                if (x + w/2.0) > (float(w_lim_2)/img_w):
+                    w = w - (x + w/2.0 - float(w_lim_2)/img_w)
+                    x = float(w_lim_2)/img_w - w/2.0
+
+            else: continue
+
+            # Do not forget to convert from old coord sys to new one
+            x = (x*img_w - float(w_lim_1))/float(w_lim_2 - w_lim_1)
+            w = w*img_w/float(w_lim_2 - w_lim_1)
+
+            assert x >= 0, "Value was {}".format(x)
+            assert x <= 1, "Value was {}".format(x)
+            assert (x - w/2) >= 0, "Value was {}".format(x - w/2)
+            assert (x + w/2) <= 1, "Value was {}".format(x + w/2)
+
+            size = min(img_w, img_h)
+
+            (xmin, ymin, xmax, ymax) = convertBack(x*size, y*size, w*size, h*size)
+
+            new_line = "{} {} {} {} {} {}\n".format(label, prob, xmin, ymin, xmax, ymax)
+            content_out.append(new_line)
+
+        # Write updated content to TXT file
+        save_name = os.path.splitext(os.path.basename(image))[0] + '.txt'
+        with open(os.path.join(save_dir, save_name), 'w') as f:
+            f.writelines(content_out)
+
+
 def detect_on_folder(images, save_dir, model_path, cfg_path, data_path):
     names = [os.path.split(image)[1] for image in images]
-    names = [os.path.join(save_dir, os.path.splitext(name)[0] + ('.jpg')) for name in names]
+    names = [os.path.join(save_dir, os.path.splitext(name)[0]) + '.jpg' for name in names]
 
     for i, image in enumerate(images):
         detections = performDetect(imagePath=image, configPath=cfg_path, weightPath=model_path, metaPath=data_path, showImage=False)
@@ -833,8 +957,10 @@ if __name__ == "__main__":
     #     config_file=config_file,
     #     data_obj=meta_path)
 
-    save_detect_to_txt(images, save_dir+'detection-results/', model_path, config_file, meta_path)
-    convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
+    # save_detect_to_txt(images, save_dir+'detection-results/', model_path, config_file, meta_path)
+    # convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
+    crop_annotation_to_square(image_path, save_dir+'ground-truth', labels_to_names)
+    crop_detection_to_square(image_path, save_dir+'detection-results', model_path, config_file, meta_path)
 
     # Parallel computation for every images
     # Parallel(n_jobs=-1, backend="multiprocessing")(map(
