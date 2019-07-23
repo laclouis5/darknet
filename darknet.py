@@ -36,12 +36,21 @@ import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
-# import cv2 as cv
+from collections import deque
+try:
+    import cv2 as cv
+except:
+    pass
 from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
 
 from lxml.etree import Element, SubElement, tostring, parse
+from test import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir
+
+from utils import *
+from BoundingBox import BoundingBox
+from BoundingBoxes import BoundingBoxes
 
 def sample(probs):
     s = sum(probs)
@@ -380,10 +389,6 @@ predict_image = lib.network_predict_image
 predict_image.argtypes = [c_void_p, IMAGE]
 predict_image.restype = POINTER(c_float)
 
-predict_image_letterbox = lib.network_predict_image_letterbox
-predict_image_letterbox.argtypes = [c_void_p, IMAGE]
-predict_image_letterbox.restype = POINTER(c_float)
-
 def array_to_image(arr):
     import numpy as np
     # need to return old values to avoid python freeing memory
@@ -420,7 +425,7 @@ def detect(net, meta, image, thresh=.5, hier_thresh=.5, nms=.45, debug= False):
     if debug: print("freed image")
     return ret
 
-def detect_image(net, meta, im, thresh=.5, hier_thresh=.5, nms=.45, debug= False):
+def detect_image(net, meta, im, thresh=.5, hier_thresh=.5, nms=.45, debug=False):
     #import cv2
     #custom_image_bgr = cv2.imread(image) # use: detect(,,imagePath,)
     #custom_image = cv2.cvtColor(custom_image_bgr, cv2.COLOR_BGR2RGB)
@@ -433,12 +438,9 @@ def detect_image(net, meta, im, thresh=.5, hier_thresh=.5, nms=.45, debug= False
     pnum = pointer(num)
     if debug: print("Assigned pnum")
     predict_image(net, im)
-    letter_box = 0
-    #predict_image_letterbox(net, im)
-    #letter_box = 1
     if debug: print("did prediction")
-    #dets = get_network_boxes(net, custom_image_bgr.shape[1], custom_image_bgr.shape[0], thresh, hier_thresh, None, 0, pnum, letter_box) # OpenCV
-    dets = get_network_boxes(net, im.w, im.h, thresh, hier_thresh, None, 0, pnum, letter_box)
+    #dets = get_network_boxes(net, custom_image_bgr.shape[1], custom_image_bgr.shape[0], thresh, hier_thresh, None, 0, pnum, 0) # OpenCV
+    dets = get_network_boxes(net, im.w, im.h, thresh, hier_thresh, None, 0, pnum, 0)
     if debug: print("Got dets")
     num = pnum[0]
     if debug: print("got zeroth index of pnum")
@@ -629,63 +631,72 @@ def convertBack(x, y, w, h):
     return xmin, ymin, xmax, ymax
 
 
-from BoundingBox import BoundingBox
-from BoundingBoxes import BoundingBoxes
-from Evaluator import Evaluator
-from test import read_txt_annotation_file, parse_yolo_folder
-from utils import *
+# from BoundingBox import BoundingBox
+# from BoundingBoxes import BoundingBoxes
+# from Evaluator import Evaluator
+# from test import read_txt_annotation_file, parse_yolo_folder
+# from utils import *
+#
+# def compute_mean_crop_annotation_to_squareaverage_precision(folder, model, config_file, data_obj):
+#     files = os.listdir(folder)
+#     images = [os.path.join(folder, file) for file in files if os.path.splitext(file)[1] == '.jpg']
+#
+#     bounding_boxes = parse_yolo_folder(folder)
+#     bounding_boxes.mapLabels({0: "mais", 1: 'haricot', 2: 'carotte'})
+#
+#     for image in images:
+#         detections = performDetect(
+#             imagePath=image,
+#             configPath=config_file,
+#             weightPath=model,
+#             metaPath=data_obj,
+#             showImage=False)
+#
+#         img_size = Image.open(image).size
+#
+#         for detection in detections:
+#             label, conf = detection[0], detection[1]
+#             # Abs XYX2Y2
+#             x_min, y_min, x_max, y_max = convertBack(*detection[2])
+#
+#             bounding_boxes.addBoundingBox(BoundingBox(
+#                 imageName=os.path.basename(image),
+#                 classId=label,
+#                 x=x_min, y=y_min, w=x_max, h=y_max,
+#                 bbType=BBType.Detected, classConfidence=conf,
+#                 format=BBFormat.XYX2Y2,
+#                 imgSize=img_size))
+#
+#     evaluator = Evaluator()
+#     metrics = evaluator.GetPascalVOCMetrics(bounding_boxes)
+#     for item in metrics:
+#         (prec,  rec) = item["precision"], item["recall"]
+#         print("{} - mAP: {:.4} %, TP: {}, FP: {}, tot. pos.: {}".format(item['class'], 100*item['AP'], item["total TP"], item["total FP"], item["total positives"]))
 
-def compute_mean_average_precision(folder, model, config_file, data_obj):
-    files = os.listdir(folder)
-    images = [os.path.join(folder, file) for file in files if os.path.splitext(file)[1] == '.jpg']
 
-    bounding_boxes = parse_yolo_folder(folder)
-    bounding_boxes.mapLabels({0: "mais", 1: 'haricot', 2: 'carotte'})
+def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file):
+    img_gen = ImageGeneratorFromFolder(folder_path)
+    create_dir(save_dir)
 
-    for image in images:
-        detections = performDetect(
-            imagePath=image,
-            configPath=config_file,
-            weightPath=model,
-            metaPath=data_obj,
-            showImage=False)
+    for image in img_gen:
+        detections = performDetect(image, thresh=0.005, configPath=config_file, weightPath=model, metaPath=data_file, showImage=False)
 
-        img_size = Image.open(image).size
+        save_name = os.path.join(save_dir, os.path.splitext(os.path.basename(image))[0]) + ".txt"
+        print(save_name)
 
+        (height, width) = cv.imread(image).shape[0:2]
+
+        lines = []
         for detection in detections:
-            label, conf = detection[0], detection[1]
-            # Abs XYX2Y2
-            x_min, y_min, x_max, y_max = convertBack(*detection[2])
+            box = detection[2]
+            label = detection[0]
+            # (xmin, ymin, xmax, ymax) = convertBack(box[0], box[1], box[2], box[3])
+            (x, y, w, h) = box[0]/width, box[1]/height, box[2]/width, box[3]/height
+            confidence = detection[1]
+            lines.append("{} {} {} {} {} {}\n".format(map_labels[label], confidence, x, y, w, h))
 
-            bounding_boxes.addBoundingBox(BoundingBox(
-                imageName=os.path.basename(image),
-                classId=label,
-                x=x_min, y=y_min, w=x_max, h=y_max,
-                bbType=BBType.Detected, classConfidence=conf,
-                format=BBFormat.XYX2Y2,
-                imgSize=img_size))
-
-    evaluator = Evaluator()
-    metrics = evaluator.GetPascalVOCMetrics(bounding_boxes)
-    for item in metrics:
-        (prec,  rec) = item["precision"], item["recall"]
-        print("{} - mAP: {:.4} %, TP: {}, FP: {}, tot. pos.: {}".format(item['class'], 100*item['AP'], item["total TP"], item["total FP"], item["total positives"]))
-
-
-def save_detect_to_txt(images, save_dir, model_path, cfg_path, data_path):
-    names = [os.path.split(image)[1] for image in images]
-    names = [os.path.join(save_dir, os.path.splitext(name)[0]) + '.txt' for name in names]
-
-    for i, image in enumerate(images):
-        detections = performDetect(imagePath=image, configPath=cfg_path, weightPath=model_path, metaPath=data_path, showImage=False)
-
-        with open(names[i], 'w') as f:
-            for detection in detections:
-                box   = detection[2]
-                (x_min, y_min, x_max, y_max) = convertBack(box[0], box[1], box[2], box[3])
-                line = "{} {:.6} {} {} {} {}\n".format(detection[0], detection[1], x_min, y_min, x_max, y_max)
-
-                f.write(line)
+        with open(save_name, 'w') as f:
+            f.writelines(lines)
 
 
 def convert_yolo_annot_to_XYX2Y2(annotation_dir, save_dir, lab_to_name):
@@ -694,9 +705,9 @@ def convert_yolo_annot_to_XYX2Y2(annotation_dir, save_dir, lab_to_name):
 
     for (image, annotation) in zip(images, annotations):
         (img_w, img_h) = Image.open(image).size
-        # print('Image:      {}'.format(image))
-        # print('Annotation: {}'.format(annotation))
-        # print('Image Size: {} x {}'.format(img_w, img_h))
+        print('Image:      {}'.format(image))
+        print('Annotation: {}'.format(annotation))
+        print('Image Size: {} x {}'.format(img_w, img_h))
 
         with open(annotation, 'r') as f:
             content = f.readlines()
@@ -708,132 +719,342 @@ def convert_yolo_annot_to_XYX2Y2(annotation_dir, save_dir, lab_to_name):
                 (label, x, y, w, h) = int(line[0]), float(line[1]), float(line[2]), float(line[3]), float(line[4])
                 # print('Line:       {} {:.4} {:.4} {:.4} {:.4}'.format(int(line[0]), float(line[1]), float(line[2]), float(line[3]), float(line[4])))
                 (xmin, ymin, xmax, ymax) = convertBack(x*img_w, y*img_h, w*img_w, h*img_h)
-                fw.write('{} {} {} {} {}\n'.format(lab_to_name[label], xmin+1, ymin+1, xmax+1, ymax+1))
-                # print('Line save:  {} {} {} {} {}'.format(lab_to_name[label], xmin, ymin, xmax, ymax))
+                fw.write('{} {} {} {} {}\n'.format(lab_to_name[label], xmin, ymin, xmax, ymax))
+                # fw.write('{} {} {} {} {}\n'.format(lab_to_name[label], x*img_w, y*img_h, w*img_w, h*img_h))
 
 
-def detect_on_folder(images, save_dir, model_path, cfg_path, data_path):
-    names = [os.path.split(image)[1] for image in images]
-    names = [os.path.join(save_dir, os.path.splitext(name)[0] + ('.jpg')) for name in names]
+def crop_annotation_to_square(annot_folder, save_dir, lab_to_name):
+    annotations = [os.path.join(annot_folder, item) for item in os.listdir(annot_folder) if os.path.splitext(item)[1] == '.txt']
 
-    for i, image in enumerate(images):
-        detections = performDetect(imagePath=image, configPath=cfg_path, weightPath=model_path, metaPath=data_path, showImage=False)
-        img_out = cvDrawBoxes(detections, cv.imread(image))
+    for annotation in annotations:
+        content_out = []
+        corresp_img = os.path.splitext(annotation)[0] + '.jpg'
+        (img_w, img_h) = Image.open(corresp_img).size
 
-        cv.imwrite(names[i], img_out)
+        print("In landscape mode: {} by {}".format(img_w, img_h))
+        # Here are abs coords of square bounds (left and right)
+        (w_lim_1, w_lim_2) = round(float(img_w)/2 - float(img_h)/2), round(float(img_w)/2 + float(img_h)/2)
+
+        with open(annotation, 'r') as f:
+            print("Reading annotation...")
+            content = f.readlines()
+            content = [line.strip() for line in content]
+
+            for line in content:
+                print("Reading a line...")
+                line = line.split()
+                # Get relative coords (in old coords system)
+                (label, x, y, w, h) = int(line[0]), float(line[1]), float(line[2]), float(line[3]), float(line[4])
+                print("Line is: {} {} {} {} {}".format(label, x, y, w, h))
+
+                # If bbox is not out of the new square frame
+                if not (x*img_w < w_lim_1 or x*img_w > w_lim_2):
+                    print("In square bounds")
+                    # But if bbox spans out of one bound (l or r)
+                    if (x - w/2.0) < (float(w_lim_1)/img_w):
+                        print("Spans out of left bound")
+                        # Then adjust bbox to fit in the square
+                        w = w - (float(w_lim_1)/img_w - (x - w/2.0))
+                        x = float(w_lim_1+1)/img_w + w/2.0
+                    if (x + w/2.0) > (float(w_lim_2)/img_w):
+                        print("Span out of right bound")
+                        w = w - (x + w/2.0 - float(w_lim_2)/img_w)
+                        x = float(w_lim_2)/img_w - w/2.0
+                    else:
+                        print("Does not spans outside")
+
+                # If out of bounds...
+                else:
+                    print("Out of square bounds")
+                    # ...do not process the line
+                    continue
+
+                # Do not forget to convert from old coord sys to new one
+                x = (x*img_w - float(w_lim_1))/float(w_lim_2 - w_lim_1)
+                w = w*img_w/float(w_lim_2 - w_lim_1)
+
+                assert x >= 0, "Value was {}".format(x)
+                assert x <= 1, "Value was {}".format(x)
+                assert (x - w/2) >= 0, "Value was {}".format(x - w/2)
+                assert (x + w/2) <= 1, "Value was {}".format(x + w/2)
+
+                size = min(img_w, img_h)
+
+                (xmin, ymin, xmax, ymax) = convertBack(x*size, y*size, w*size, h*size)
+
+                new_line = "{} {} {} {} {}\n".format(lab_to_name[label], xmin, ymin, xmax, ymax)
+                content_out.append(new_line)
+
+        # Write updated content to TXt file
+        with open(os.path.join(save_dir, os.path.basename(annotation)), 'w') as f:
+            f.writelines(content_out)
 
 
-def cv_egi_mask(image, thresh=40):
-    image_np = np.array(image).astype(np.float32)
-    image_np = 2 * image_np[:, :, 1] - image_np[:, :, 0] - image_np[:, :, 2]
+def crop_detection_to_square(image_path, save_dir, model, config_file, meta_file):
+    images = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == '.jpg']
+    images.sort()
 
-    image_gf = cv.GaussianBlur(src=image_np, ksize=(0, 0), sigmaX=3)
+    for image in images:
+        content_out = []
+        (img_w, img_h) = Image.open(image).size
+        (w_lim_1, w_lim_2) = round(float(img_w)/2 - float(img_h)/2), round(float(img_w)/2 + float(img_h)/2)
 
-    image_bin = image_gf > thresh
+        detections = performDetect(
+            imagePath=image,
+            configPath=config_file,
+            weightPath=model,
+            metaPath=meta_file,
+            showImage=False)
 
-    nb_components, output, stats, _ = cv.connectedComponentsWithStats(image_bin.astype(np.uint8), connectivity=8)
+        for detection in detections:
+            label = detection[0]
+            prob = detection[1]
+            (x, y, w, h) = detection[2]
+            (x, y, w, h) = (x/img_w, y/img_h, w/img_w, h/img_h)
 
-    sizes = stats[1:, -1]
-    nb_components = nb_components - 1
+            # If bbox is not out of the new square frame
+            if not (x*img_w < w_lim_1 or x*img_w > w_lim_2):
+                # But if bbox spans out of one bound (l or r)
+                if (x - w/2.0) < (float(w_lim_1)/img_w):
+                    # Then adjust bbox to fit in the square
+                    w = w - (float(w_lim_1)/img_w - (x - w/2.0))
+                    x = float(w_lim_1+1)/img_w + w/2.0
+                if (x + w/2.0) > (float(w_lim_2)/img_w):
+                    w = w - (x + w/2.0 - float(w_lim_2)/img_w)
+                    x = float(w_lim_2)/img_w - w/2.0
 
-    img_out = np.zeros((output.shape))
+            else: continue
 
-    for i in range(0, nb_components):
-        if sizes[i] >= 500:
-            img_out[output == i + 1] = 255
+            # Do not forget to convert from old coord sys to new one
+            x = (x*img_w - float(w_lim_1))/float(w_lim_2 - w_lim_1)
+            w = w*img_w/float(w_lim_2 - w_lim_1)
 
-    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
-    image_morph = cv.morphologyEx(img_out, op=cv.MORPH_CLOSE, kernel=kernel)
+            assert x >= 0, "Value was {}".format(x)
+            assert x <= 1, "Value was {}".format(x)
+            assert (x - w/2) >= 0, "Value was {}".format(x - w/2)
+            assert (x + w/2) <= 1, "Value was {}".format(x + w/2)
 
-    return image_morph
+            size = min(img_w, img_h)
+
+            (xmin, ymin, xmax, ymax) = convertBack(x*size, y*size, w*size, h*size)
+
+            new_line = "{} {} {} {} {} {}\n".format(label, prob, xmin, ymin, xmax, ymax)
+            content_out.append(new_line)
+
+        # Write updated content to TXT file
+        save_name = os.path.splitext(os.path.basename(image))[0] + '.txt'
+        with open(os.path.join(save_dir, save_name), 'w') as f:
+            f.writelines(content_out)
 
 
-def egi_mask(image, thresh=40):
-    image_np  = np.array(image).astype(float)
-    image_egi = 2 * image_np[:, :, 1] - image_np[:, :, 0] - image_np[:, :, 2]
-    image_gf  = filters.gaussian(image_egi, sigma=1, mode='reflect')
-    image_bin = image_gf > thresh
+def draw_boxes(image, annotation, save_path, color=[255, 64, 0]):
+    save_name        = os.path.join(save_path, os.path.basename(image))
+    height, width, _ = cv.imread(image).shape
 
-    image_morph = morphology.remove_small_objects(image_bin, 400)
-    image_out   = morphology.remove_small_holes(image_morph, 800)
+    boxes = read_detection_txt_file(annotation, (width, height))
+    img = cv.imread(image)
 
-    return image_out
+    for box in boxes.getBoundingBoxes():
+        add_bb_into_image(img, box, color=color, label=box.getClassId())
+
+    cv.imwrite(os.path.join(save_name), img)
 
 
-def create_operose_result(image):
-    # Creates and populate XML tree, save plant masks as PGM and XLM file
-    # for each images
+def draw_boxes_bboxes(image, bounding_boxes, save_dir, color=[255, 64, 0]):
+    image = image.copy()
 
-    img_name  = os.path.split(os.path.splitext(image)[0])[1]
-    image_egi = egi_mask(io.imread(image))
-    im_in     = Image.fromarray(np.uint8(255 * image_egi))
-    # image_egi = cv_egi_mask(cv.imread(image))
-    # im_in     = Image.fromarray(image_egi)
+    for box in bounding_boxes.getBoundingBoxes():
+        add_bb_into_image(image, box, color=color, label=box.getClassId())
+        image_path = os.path.join(save_dir, box.getImageName())
 
-    h, w = image_egi.shape
+    cv.imwrite(image_path, image)
 
-    # Perform detection using Darknet[1]
+
+def draw_boxes_folder(images_path, annotations_path, save_path):
+    images = ImageGeneratorFromFolder(images_path)
+
+    for image in images:
+        annotation = os.path.splitext(os.path.basename(image))[0] + ".txt"
+        annotation = os.path.join(annotations_path, annotation)
+
+        draw_boxes(image, annotation, save_path)
+
+
+def ImageGeneratorFromVideo(video_path, skip_frames=1, gray_scale=True, down_scale=1, ratio=None):
+    video = cv.VideoCapture(video_path)
+    ret = True
+    while ret:
+        for _ in range(skip_frames):
+            ret, frame = video.read()
+
+        if down_scale > 1:
+            frame = frame[::down_scale, ::down_scale]
+
+        if gray_scale:
+            frame = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+
+        if ratio is not None:
+            height, width = frame.shape[0:2]
+            new_width = ratio * height
+            to_crop   = int((width - new_width) / 2)
+
+            frame = frame[:, to_crop:-to_crop, :]
+
+        yield(ret, frame)
+
+
+def convert_to_grayscale(image):
+    frame = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+    return frame
+
+
+def ImageGeneratorFromFolder(folder, sorted=False):
+    files = [os.path.join(folder, item) for item in os.listdir(folder) if os.path.splitext(item)[1] == ".jpg"]
+    if sorted:
+        files.sort()
+    for file in files:
+        yield file
+
+
+def save_images_from_video(path_to_video, save_dir, nb_iter=100):
+    skip_frames = 2
+    video_gen = ImageGeneratorFromVideo(path_to_video, skip_frames=skip_frames, gray_scale=False)
+
+    if not os.path.isdir(save_dir):
+        os.mkdir(save_dir)
+
+    i = 0
+    while i < nb_iter:
+        _, frame = next(video_gen)
+        height, width = frame.shape[0:2]
+        new_ratio = 4/3
+        new_width = new_ratio * height
+        to_crop   = int((width - new_width) / 2)
+
+        frame = frame[:, to_crop:-to_crop, :]
+
+        frame_name = os.path.join(save_dir, "im_{}.jpg".format(i*skip_frames))
+        cv.imwrite(frame_name, frame, [int(cv.IMWRITE_JPEG_QUALITY), 100])
+        i += 1
+
+
+def filter_detections(video_path, video_param, save_dir, yolo_param, k=8):
+    image_dir = os.path.join(save_dir, "images")
+    annot_dir = os.path.join(save_dir, "annotations")
+    draw_dir  = os.path.join(save_dir, "draw")
+
+    create_dir(save_dir)
+    create_dir(image_dir)
+    create_dir(annot_dir)
+    create_dir(draw_dir)
+
+    images = ImageGeneratorFromVideo(
+        video_path,
+        skip_frames=video_param["skip_frames"],
+        gray_scale=video_param["gray_scale"],
+        down_scale=video_param["down_scale"],
+        ratio=video_param["ratio"])
+
+    boxes = deque(maxlen=k)
+
+    _, first_image = next(images)
+
+    image_name = os.path.join(image_dir, "im_0.jpg")
+    cv.imwrite(image_name, first_image, [int(cv.IMWRITE_JPEG_QUALITY), 100])
+
     detections = performDetect(
-        imagePath=image,
-        configPath=config_file,
-        weightPath=model_path,
-        metaPath=meta_path,
+        image_name,
+        configPath = yolo_param["cfg"],
+        weightPath =yolo_param["model"],
+        metaPath=yolo_param["obj"],
         showImage=False)
 
-    # XML tree init
-    xml_tree = XMLTree(
-        image_name=img_name,
-        width=w,
-        height=h,
-        user_name=consort)
+    bboxes = yolo_det_to_bboxes("im_0.jpg", detections)
+    save_bboxes_to_txt(bboxes, annot_dir)
+    boxes.append(bboxes)
 
-    # For every detection save PGM mask and add field to the xml tree
-    for detection in detections:
-        name = detection[0]
+    draw_boxes_bboxes(first_image, bboxes, draw_dir)
 
-        if (name not in plant_to_keep) and plant_to_keep: continue
+    first_image = convert_to_grayscale(first_image)
 
-        bbox = detection[2]
-        # print('Annotation: {}'.format(annotation))
-        # print('Image Size: {} x {}'.format(img_w, img_h))
+    prev_opt_flow = np.zeros_like(first_image)
 
-        xmin, ymin, xmax, ymax = convertBack(bbox[0], bbox[1], bbox[2], bbox[3])
-        box = (xmin, ymin, xmax, ymax)
+    i = 1
+    for _, image in images:
+        second_image = convert_to_grayscale(image)
+        image_name = os.path.join(image_dir, "im_{}.jpg".format(i))
 
-        xml_tree.add_mask_zone(plant_type='PlanteInteret', bbox=box, name=name)
+        optical_flow = cv.calcOpticalFlowFarneback(
+            prev=first_image,
+            next=second_image,
+            flow=prev_opt_flow,
+            pyr_scale=0.5,
+            levels=4,
+            winsize=32,
+            iterations=3,
+            poly_n=5,
+            poly_sigma=1.2,
+            flags=0)
 
-        im_out = Image.new(mode='1', size=(w, h))
-        region = im_in.crop(box)
-        im_out.paste(region, box)
+        dx = optical_flow[..., 0]
+        dy = optical_flow[..., 1]
 
-        im_out.save('{}{}_{}_{}.pgm'.format(
-            save_dir,
-            consort,
-            img_name,
-            str(xml_tree.get_current_mask_id())))
+        mean_dx = dx.sum() / dx.size
+        mean_dy = dy.sum() / dy.size
 
-    xml_tree.save('{}{}_{}.xml'.format(
-        save_dir,
-        consort,
-        img_name))
+        print("Mean dx: {:.6}  Mean dy: {:.6}".format(mean_dx, mean_dy))
+
+        cv.imwrite(image_name, image, [int(cv.IMWRITE_JPEG_QUALITY), 100])
+
+        detections = performDetect(
+            image_name,
+            configPath=yolo_param["cfg"],
+            weightPath=yolo_param["model"],
+            metaPath=yolo_param["obj"],
+            showImage=False)
+
+        bboxes = yolo_det_to_bboxes("im_{}.jpg".format(i), detections)
+
+        [item.shiftBoundingBoxesBy(mean_dx, mean_dy) for item in boxes]
+        boxes.append(bboxes)
+
+        boxes_to_save = []
+        [boxes_to_save.extend(item.getBoundingBoxes()) for item in boxes]
+        boxes_to_save = [box for box in boxes_to_save if box.getClassId() == "leek"]
+        [box.setImageName("im_{}.jpg".format(i)) for box in boxes_to_save]
+        boxes_to_save = BoundingBoxes(boxes_to_save)
+
+        boxes_to_keep = nms(boxes_to_save)
+
+        save_bboxes_to_txt(boxes_to_keep, annot_dir)
+        draw_boxes_bboxes(image, boxes_to_keep, draw_dir)
+
+        first_image = second_image
+        prev_opt_flow = optical_flow
+        i += 1
 
 
 if __name__ == "__main__":
     image_path  = "data/val/"
-    model_path  = "results/yolov3-tiny_8/yolov3-tiny_obj_7400.weights"
-    config_file = "results/yolov3-tiny_8/yolov3-tiny_obj.cfg"
-    meta_path   = "data/obj.data"
+    model_path  = "results/yolo_v3_tiny_pan3_1/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou_best.weights"
+    config_file = "results/yolo_v3_tiny_pan3_1/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou.cfg"
+    meta_path   = "results/yolo_v3_tiny_pan3_1/obj.data"
 
-    consort  = 'bipbip'
+    yolo_param  = {"model": model_path, "cfg": config_file, "obj": meta_path}
+
+    video_path  = "/media/deepwater/Elements/Louis/2019-07-25_larrere_videos/demo_tele_4K.mp4"
+    video_param = {"skip_frames": 5, "down_scale": 2, "gray_scale": False, "ratio": 4/3}
+
+    consort  = 'Bipbip'
     save_dir = 'save/'
-    labels_to_names = ['mais', 'haricot', 'carotte']
+    labels_to_names = ['maize', 'bean', 'leek', 'maize_stem', 'bean_stem', 'leek_stem']
+    map_labels      = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
     # save_dir = /Users/louislac/Downloads/save/
 
     plant_to_keep = []
 
     # Create a list of image names to process
-    images = os.listdir(image_path)
-    images = [os.path.join(image_path, item) for item in images if os.path.splitext(item)[1] == ".jpg"]
+    images = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == ".jpg"]
 
     # compute_mean_average_precision(
     #     folder=image_path,
@@ -841,10 +1062,27 @@ if __name__ == "__main__":
     #     config_file=config_file,
     #     data_obj=meta_path)
 
-    save_detect_to_txt(images, save_dir+'detection-results/', model_path, config_file, meta_path)
-    convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
+    # save_images_from_video(video_path, os.path.join(save_dir, "images_from_video/"), nb_iter=100)
+    # save_detect_to_txt(os.path.join(save_dir, "images_from_video/"), save_dir+'result/', model_path, config_file, meta_path)
+    # draw_boxes_folder(os.path.join(save_dir, "images_from_video"), os.path.join(save_dir, "result/"), save_path=save_dir)
+    image_vid  = os.path.join(save_dir, "images_from_video")
+    save_path  = os.path.join(save_dir, "save_dir")
+    annot_path = os.path.join(save_dir, "result")
 
-    # Parallel computation for every images
-    # Parallel(n_jobs=-1, backend="multiprocessing")(map(
-    #     delayed(create_operose_result),
-    #     images))
+    filter_detections(video_path, video_param, save_path, yolo_param, k=5)
+
+    # save_detect_to_txt(image_path, save_dir, model_path, config_file, meta_path)
+    # convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
+
+    # with open("data/val.txt", "r") as f:
+    #     content = f.readlines()
+    #
+    # content = [item.strip() for item in content]
+    # content = [os.path.join("data/img/val", os.path.basename(item)) for item in content]
+    #
+    # with open("data/val.txt", "w") as f:
+    #     for line in content:
+    #         f.write(line + "\n")
+
+    # crop_annotation_to_square(image_path, save_dir+'ground-truth', labels_to_names)
+    # crop_detection_to_square(image_path, save_dir+'detection-results', model_path, config_file, meta_path)
