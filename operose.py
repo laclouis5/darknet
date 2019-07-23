@@ -1,86 +1,104 @@
-from skimage import io, filters, morphology
+try:
+    import cv2 as cv
+except:
+    from skimage import io, filters, morphology
 import numpy as np
 from PIL import Image
 from joblib import Parallel, delayed
+import os
 
+from darknet import performDetect, convertBack
+from my_xml_toolbox import XMLTree
+from test import egi_mask, cv_egi_mask, create_dir
 
-def __init_(self, images, weights, cfg, meta, plant_to_keep=[], user_name='bipbip', save_dir = 'result_operose/', parallel=True):
-    self.images        = images
-    self.weights       = weights
-    self.cfg           = cfg
-    self.meta          = meta,
-    self.plant_to_keep = plant_to_keep
-    self.user_name     = user_name
-    self.save_dir      = save_dir
+def create_operose_result(args):
+    (image, save_dir, network_params, plants_to_keep) = args
 
-    def egi_mask(image_path, thresh=1.15):
-        image    = io.imread(image)
-        image_np = np.array(image).astype(float)
+    config_file = network_params["cfg"]
+    model_path  = network_params["model"]
+    meta_path   = network_params["obj"]
 
-        image_np = 2*image_np[:, :, 1] / (image_np[:, :, 0] + image_np[:, :, 2] + 0.001)
-        image_gf = filters.gaussian(image_np, sigma=1, mode='reflect')
+    print(args)
 
-        image_bin = image_gf > 1.15
+    consort = "Bipbip"
 
-        image_morph = morphology.binary_erosion(image_bin, morphology.disk(3))
-        image_morph = morphology.binary_dilation(image_morph, morphology.disk(3))
+    # Creates and populate XML tree, save plant masks as PGM and XLM file
+    # for each images
+    img_name  = os.path.basename(image)
+    image_egi = egi_mask(io.imread(image))
+    im_in     = Image.fromarray(np.uint8(255 * image_egi))
 
-        image_out = morphology.remove_small_objects(image_morph, 400)
-        image_out = morphology.remove_small_holes(image_out, 800)
+    h, w = image_egi.shape[0:2]
 
-        return image_out
+    # Perform detection using Darknet
+    detections = performDetect(
+        imagePath=image,
+        configPath=config_file,
+        weightPath=model_path,
+        metaPath=meta_path,
+        showImage=False)
 
+    [print(detection[2]) for detection in detections]
 
-    def process_image(image, plant_to_keep):
-        # Creates and populate XML tree, save plant masks as PGM and XLM file
-        # for each images
+    # XML tree init
+    xml_tree = XMLTree(
+        image_name=img_name,
+        width=w,
+        height=h,
+        user_name=consort)
 
-        img_name  = os.path.split(os.path.splitext(image)[0])[1]
-        image_egi = egi_mask(cv.imread(image))
-        im_in     = Image.fromarray(np.uint8(255 * image_egi))
+    # For every detection save PGM mask and add field to the xml tree
+    for detection in detections:
+        name = detection[0]
 
-        h, w = image_egi.shape
+        if plants_to_keep is not None:
+            if name in plants_to_keep:
+                continue
 
-        # Perform detection using Darknet
-        detections = performDetect(
-            imagePath=image,
-            configPath=config_file,
-            weightPath=model_path,
-            metaPath=meta_path,
-            showImage=False)
+        bbox = detection[2]
+        box  = convertBack(bbox[0], bbox[1], bbox[2], bbox[3])
 
-        # XML tree init
-        xml_tree = XMLTree(
-            image_name=img_name,
-            width=w,
-            height=h,
-            user_name=consort)
+        xml_tree.add_mask_zone(plant_type='PlanteInteret', bbox=box, name=name)
 
-        # For every detection save PGM mask and add field to the xml tree
-        for detection in detections:
-            name = detection[0]
+        im_out = Image.new(mode='1', size=(w, h))
+        region = im_in.crop(box)
+        im_out.paste(region, box)
 
-            if (name not in plant_to_keep) and plant_to_keep: continue
-
-            bbox = detection[2]
-            xmin, ymin, xmax, ymax = convertBack(bbox[0], bbox[1], bbox[2], bbox[3])
-            bbox = [xmin, ymin, xmax, ymax]
-
-            xml_tree.add_mask_zone(plant_type='PlanteInteret', bbox=bbox, name=name)
-
-            box = (xmin, ymin, xmax, ymax)
-
-            im_out = Image.new(mode='1', size=(w, h))
-            region = im_in.crop(box)
-            im_out.paste(region, box)
-
-            im_out.save('{}{}_{}_{}.pgm'.format(
-                save_dir,
-                consort,
-                img_name,
-                str(xml_tree.get_current_mask_id())))
-
-        xml_tree.save('{}{}_{}.xml'.format(
+        im_out.save('{}{}_{}_{}.pgm'.format(
             save_dir,
             consort,
-            img_name))
+            os.path.splitext(img_name)[0],
+            str(xml_tree.get_current_mask_id())))
+
+    xml_tree.save('{}{}_{}.xml'.format(
+        save_dir,
+        consort,
+        os.path.splitext(img_name)[0]))
+
+
+def process_operose(image_path, network_params, save_dir="operose/", plants_to_keep=None, nb_proc=4):
+    create_dir(save_dir)
+
+    def ArgsGenerator(image_path, network_params, save_dir, plants_to_keep):
+        images = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == ".jpg"]
+        for image in images:
+            yield (image, save_dir, network_params, plants_to_keep)
+
+    args = ArgsGenerator(image_path, network_params, save_dir, plants_to_keep)
+
+    Parallel(n_jobs=nb_proc, backend="multiprocessing")(delayed(create_operose_result)(arg) for arg in args)
+
+
+if __name__ == "__main__":
+    image_path = "data/val/"
+
+    model_path  = "results/yolo_v3_tiny_pan3_1/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou_best.weights"
+    config_file = "results/yolo_v3_tiny_pan3_1/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou.cfg"
+    meta_path   = "results/yolo_v3_tiny_pan3_1/obj.data"
+
+    yolo_param = {"model": model_path, "cfg": config_file, "obj": meta_path}
+
+    keep_challenge   = ["maize", "bean"]
+    save_dir_operose = os.path.join("save/operose/")
+
+    process_operose(image_path, yolo_param, plants_to_keep=keep_challenge, save_dir=save_dir_operose, nb_proc=1)
