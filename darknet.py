@@ -665,20 +665,40 @@ def convertBack(x, y, w, h):
 #         print("{} - mAP: {:.4} %, TP: {}, FP: {}, tot. pos.: {}".format(item['class'], 100*item['AP'], item["total TP"], item["total FP"], item["total positives"]))
 
 
-def save_detect_to_txt(images, save_dir, model_path, cfg_path, data_path):
-    names = [os.path.split(image)[1] for image in images]
-    names = [os.path.join(save_dir, os.path.splitext(name)[0]) + '.txt' for name in names]
+def save_detect_to_txt(annot_dir, save_dir, model, config_file, data_file):
+    images = [os.path.join(annot_dir, item) for item in os.listdir(annot_dir) if os.path.splitext(item)[1] == ".jpg"]
 
-    for i, image in enumerate(images):
-        detections = performDetect(imagePath=image, configPath=cfg_path, weightPath=model_path, metaPath=data_path, showImage=False)
+    for image in images:
+        detections = performDetect(image, thresh=0.25, configPath=config_file, weightPath=model, metaPath=data_file, showImage=False)
 
-        with open(names[i], 'w') as f:
-            for detection in detections:
-                box   = detection[2]
-                (x_min, y_min, x_max, y_max) = convertBack(box[0], box[1], box[2], box[3])
-                line = "{} {:.6} {} {} {} {}\n".format(detection[0], detection[1], x_min, y_min, x_max, y_max)
+        save_name = os.path.join(save_dir, os.path.splitext(os.path.basename(image))[0]) + ".txt"
+        print(save_name)
 
-                f.write(line)
+        lines = []
+
+        for detection in detections:
+            box = detection[2]
+            (xmin, ymin, xmax, ymax) = convertBack(box[0], box[1], box[2], box[3])
+            lines.append("{} {} {} {} {} {}\n".format(detection[0], detection[1], xmin, ymin, xmax, ymax))
+
+        with open(save_name, 'w') as f:
+            f.writelines(lines)
+
+
+# def save_detect_to_txt(images, save_dir, model_path, cfg_path, data_path):
+#     names = [os.path.split(image)[1] for image in images]
+#     names = [os.path.join(save_dir, os.path.splitext(name)[0]) + '.txt' for name in names]
+#
+#     for i, image in enumerate(images):
+#         detections = performDetect(imagePath=image, configPath=cfg_path, weightPath=model_path, metaPath=data_path, showImage=False)
+#
+#         with open(names[i], 'w') as f:
+#             for detection in detections:
+#                 box   = detection[2]
+#                 (x_min, y_min, x_max, y_max) = convertBack(box[0], box[1], box[2], box[3])
+#                 line = "{} {:.6} {} {} {} {}\n".format(detection[0], detection[1], x_min, y_min, x_max, y_max)
+#
+#                 f.write(line)
 
 
 def convert_yolo_annot_to_XYX2Y2(annotation_dir, save_dir, lab_to_name):
@@ -879,7 +899,6 @@ def egi_mask(image, thresh=40):
 def create_operose_result(image):
     # Creates and populate XML tree, save plant masks as PGM and XLM file
     # for each images
-
     img_name  = os.path.split(os.path.splitext(image)[0])[1]
     image_egi = egi_mask(io.imread(image))
     im_in     = Image.fromarray(np.uint8(255 * image_egi))
@@ -936,13 +955,13 @@ def create_operose_result(image):
 
 if __name__ == "__main__":
     image_path  = "data/val/"
-    model_path  = "results/yolov3-tiny_8/yolov3-tiny_obj_7400.weights"
-    config_file = "results/yolov3-tiny_8/yolov3-tiny_obj.cfg"
-    meta_path   = "data/obj.data"
+    model_path  = "results/yolov3-tiny_3l_6/yolov3-tiny_3l_best.weights"
+    config_file = "results/yolov3-tiny_3l_6/yolov3-tiny_3l.cfg"
+    meta_path   = "results/yolov3-tiny_3l_6/obj.data"
 
     consort  = 'bipbip'
     save_dir = 'save/'
-    labels_to_names = ['mais', 'haricot', 'carotte']
+    labels_to_names = ['maize', 'bean', 'leek', 'maize_stem', 'bean_stem', 'leek_stem']
     # save_dir = /Users/louislac/Downloads/save/
 
     plant_to_keep = []
@@ -957,10 +976,10 @@ if __name__ == "__main__":
     #     config_file=config_file,
     #     data_obj=meta_path)
 
-    # save_detect_to_txt(images, save_dir+'detection-results/', model_path, config_file, meta_path)
-    # convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
-    crop_annotation_to_square(image_path, save_dir+'ground-truth', labels_to_names)
-    crop_detection_to_square(image_path, save_dir+'detection-results', model_path, config_file, meta_path)
+    save_detect_to_txt(image_path, save_dir+'detection-results/', model_path, config_file, meta_path)
+    convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
+    # crop_annotation_to_square(image_path, save_dir+'ground-truth', labels_to_names)
+    # crop_detection_to_square(image_path, save_dir+'detection-results', model_path, config_file, meta_path)
 
     # Parallel computation for every images
     # Parallel(n_jobs=-1, backend="multiprocessing")(map(
