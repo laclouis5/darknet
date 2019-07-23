@@ -380,10 +380,6 @@ predict_image = lib.network_predict_image
 predict_image.argtypes = [c_void_p, IMAGE]
 predict_image.restype = POINTER(c_float)
 
-predict_image_letterbox = lib.network_predict_image_letterbox
-predict_image_letterbox.argtypes = [c_void_p, IMAGE]
-predict_image_letterbox.restype = POINTER(c_float)
-
 def array_to_image(arr):
     import numpy as np
     # need to return old values to avoid python freeing memory
@@ -433,12 +429,9 @@ def detect_image(net, meta, im, thresh=.5, hier_thresh=.5, nms=.45, debug= False
     pnum = pointer(num)
     if debug: print("Assigned pnum")
     predict_image(net, im)
-    letter_box = 0
-    #predict_image_letterbox(net, im)
-    #letter_box = 1
     if debug: print("did prediction")
-    #dets = get_network_boxes(net, custom_image_bgr.shape[1], custom_image_bgr.shape[0], thresh, hier_thresh, None, 0, pnum, letter_box) # OpenCV
-    dets = get_network_boxes(net, im.w, im.h, thresh, hier_thresh, None, 0, pnum, letter_box)
+    #dets = get_network_boxes(net, custom_image_bgr.shape[1], custom_image_bgr.shape[0], thresh, hier_thresh, None, 0, pnum, 0) # OpenCV
+    dets = get_network_boxes(net, im.w, im.h, thresh, hier_thresh, None, 0, pnum, 0)
     if debug: print("Got dets")
     num = pnum[0]
     if debug: print("got zeroth index of pnum")
@@ -676,7 +669,7 @@ def save_detect_to_txt(annot_dir, save_dir, model, config_file, data_file):
     images = [os.path.join(annot_dir, item) for item in os.listdir(annot_dir) if os.path.splitext(item)[1] == ".jpg"]
 
     for image in images:
-        detections = performDetect(image, thresh=0.25, configPath=config_file, weightPath=model, metaPath=data_file, showImage=False)
+        detections = performDetect(image, thresh=0.005, configPath=config_file, weightPath=model, metaPath=data_file, showImage=False)
 
         save_name = os.path.join(save_dir, os.path.splitext(os.path.basename(image))[0]) + ".txt"
         print(save_name)
@@ -685,27 +678,14 @@ def save_detect_to_txt(annot_dir, save_dir, model, config_file, data_file):
 
         for detection in detections:
             box = detection[2]
+            # (x, y, w, h) = (box[0], box[1], box[2], box[3])
             (xmin, ymin, xmax, ymax) = convertBack(box[0], box[1], box[2], box[3])
-            lines.append("{} {} {} {} {} {}\n".format(detection[0], detection[1], xmin, ymin, xmax, ymax))
+            confidence = detection[1]
+            lines.append("{} {} {} {} {} {}\n".format(detection[0], confidence, xmin, ymin, xmax, ymax))
+            # lines.append("{} {} {} {} {} {}\n".format(detection[0], confidence, x, y, w, h))
 
         with open(save_name, 'w') as f:
             f.writelines(lines)
-
-
-# def save_detect_to_txt(images, save_dir, model_path, cfg_path, data_path):
-#     names = [os.path.split(image)[1] for image in images]
-#     names = [os.path.join(save_dir, os.path.splitext(name)[0]) + '.txt' for name in names]
-#
-#     for i, image in enumerate(images):
-#         detections = performDetect(imagePath=image, configPath=cfg_path, weightPath=model_path, metaPath=data_path, showImage=False)
-#
-#         with open(names[i], 'w') as f:
-#             for detection in detections:
-#                 box   = detection[2]
-#                 (x_min, y_min, x_max, y_max) = convertBack(box[0], box[1], box[2], box[3])
-#                 line = "{} {:.6} {} {} {} {}\n".format(detection[0], detection[1], x_min, y_min, x_max, y_max)
-#
-#                 f.write(line)
 
 
 def convert_yolo_annot_to_XYX2Y2(annotation_dir, save_dir, lab_to_name):
@@ -728,8 +708,8 @@ def convert_yolo_annot_to_XYX2Y2(annotation_dir, save_dir, lab_to_name):
                 (label, x, y, w, h) = int(line[0]), float(line[1]), float(line[2]), float(line[3]), float(line[4])
                 # print('Line:       {} {:.4} {:.4} {:.4} {:.4}'.format(int(line[0]), float(line[1]), float(line[2]), float(line[3]), float(line[4])))
                 (xmin, ymin, xmax, ymax) = convertBack(x*img_w, y*img_h, w*img_w, h*img_h)
-                fw.write('{} {} {} {} {}\n'.format(lab_to_name[label], xmin+1, ymin+1, xmax+1, ymax+1))
-                # print('Line save:  {} {} {} {} {}'.format(lab_to_name[label], xmin, ymin, xmax, ymax))
+                fw.write('{} {} {} {} {}\n'.format(lab_to_name[label], xmin, ymin, xmax, ymax))
+                # fw.write('{} {} {} {} {}\n'.format(lab_to_name[label], x*img_w, y*img_h, w*img_w, h*img_h))
 
 
 def crop_annotation_to_square(annot_folder, save_dir, lab_to_name):
@@ -974,8 +954,7 @@ if __name__ == "__main__":
     plant_to_keep = []
 
     # Create a list of image names to process
-    images = os.listdir(image_path)
-    images = [os.path.join(image_path, item) for item in images if os.path.splitext(item)[1] == ".jpg"]
+    images = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == ".jpg"]
 
     # compute_mean_average_precision(
     #     folder=image_path,
@@ -985,6 +964,7 @@ if __name__ == "__main__":
 
     save_detect_to_txt(image_path, save_dir+'detection-results/', model_path, config_file, meta_path)
     convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
+
     # crop_annotation_to_square(image_path, save_dir+'ground-truth', labels_to_names)
     # crop_detection_to_square(image_path, save_dir+'detection-results', model_path, config_file, meta_path)
 

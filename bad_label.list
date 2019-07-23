@@ -1,3 +1,0 @@
-data/train/im_32.txt Wrong annotation: class_id = 2. But class_id should be [from 0 to 1]
-data/train/im_281.txt Wrong annotation: class_id = 2. But class_id should be [from 0 to 1]
-data/train/im_217.txt Wrong annotation: class_id = 2. But class_id should be [from 0 to 1]
