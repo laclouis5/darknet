@@ -962,8 +962,18 @@ if __name__ == "__main__":
     #     config_file=config_file,
     #     data_obj=meta_path)
 
-    save_detect_to_txt(image_path, save_dir+'detection-results/', model_path, config_file, meta_path)
-    convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
+    # save_detect_to_txt(image_path, save_dir+'detection-results/', model_path, config_file, meta_path)
+    # convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
+
+    # with open("data/val.txt", "r") as f:
+    #     content = f.readlines()
+    #
+    # content = [item.strip() for item in content]
+    # content = [os.path.join("data/img/val", os.path.basename(item)) for item in content]
+    #
+    # with open("data/val.txt", "w") as f:
+    #     for line in content:
+    #         f.write(line + "\n")
 
     # crop_annotation_to_square(image_path, save_dir+'ground-truth', labels_to_names)
     # crop_detection_to_square(image_path, save_dir+'detection-results', model_path, config_file, meta_path)
