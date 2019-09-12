@@ -133,7 +133,7 @@ def compute_struct_tensor(image_path, w, sigma=1.5):
         return img_coherency, img_orientation
 
 
-def read_txt_annotation_file(file_path, img_size):
+def read_gt_annotation_file(file_path, img_size):
     bounding_boxes = BoundingBoxes(bounding_boxes=[])
     image_name = os.path.basename(os.path.splitext(file_path)[0] + '.jpg')
 
@@ -144,6 +144,59 @@ def read_txt_annotation_file(file_path, img_size):
     for det in content:
         (label, x, y, w, h) = int(det[0]), float(det[1]), float(det[2]), float(det[3]), float(det[4])
         bounding_boxes.addBoundingBox(BoundingBox(imageName=image_name, classId=label, x=x, y=y, w=w, h=h, typeCoordinates=CoordinatesType.Relative, imgSize=img_size))
+
+    return bounding_boxes
+
+
+def yolo_det_to_bboxes(image_name, yolo_detections):
+    bboxes = []
+
+    for detection in yolo_detections:
+        label      = detection[0]
+        confidence = detection[1]
+        box        = detection[2]
+        (xmin, ymin, xmax, ymax) = convertBack(box[0], box[1], box[2], box[3])
+
+        bbox = BoundingBox(imageName=image_name, classId=label, x=xmin, y=ymin, w=xmax, h=ymax, typeCoordinates=CoordinatesType.Absolute, classConfidence=confidence, bbType=BBType.Detected, format=BBFormat.XYX2Y2)
+
+        bboxes.append(bbox)
+
+    return BoundingBoxes(bounding_boxes=bboxes)
+
+
+def save_bboxes_to_txt(bounding_boxes, save_dir):
+    # Saves all detections in a BBoxes object as txt file
+    names = bounding_boxes.getNames()
+
+    for name in names:
+        boxes = bounding_boxes.getBoundingBoxesByImageName(name)
+        boxes = [box for box in boxes if box.getBBType() == BBType.Detected]
+
+        string = ""
+        for box in boxes:
+            label = box.getClassId()
+            conf  = box.getConfidence()
+            (xmin, ymin, xmax, ymax) = box.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
+
+            string += "{} {} {} {} {} {}\n".format(label, str(conf), str(xmin), str(ymin), str(xmax), str(ymax))
+
+        save_name = os.path.splitext(boxes[0].getImageName())[0] + ".txt"
+
+        with open(os.path.join(save_dir, save_name), 'w') as f:
+            f.writelines(string)
+
+
+def read_detection_txt_file(file_path, img_size):
+    bounding_boxes = BoundingBoxes(bounding_boxes=[])
+    image_name = os.path.basename(os.path.splitext(file_path)[0] + '.jpg')
+
+    with open(file_path, 'r') as f:
+        content = f.readlines()
+        content = [line.strip().split() for line in content]
+
+    for det in content:
+        (label, conf, x, y, w, h) = det[0], float(det[1]), float(det[2]), float(det[3]), float(det[4]), float(det[5])
+        bounding_boxes.addBoundingBox(BoundingBox(imageName=image_name, classId=label, x=x, y=y, w=w, h=h, typeCoordinates=CoordinatesType.Absolute, format=BBFormat.XYX2Y2, imgSize=img_size, bbType=BBType.Detected, classConfidence=conf))
 
     return bounding_boxes
 
@@ -160,6 +213,29 @@ def parse_yolo_folder(data_dir):
         [bounding_boxes.addBoundingBox(bb) for bb in image_boxes.getBoundingBoxes()]
 
     return bounding_boxes
+
+
+def convertBack(x, y, w, h):
+    xmin = int(round(x - (w / 2)))
+    xmax = int(round(x + (w / 2)))
+    ymin = int(round(y - (h / 2)))
+    ymax = int(round(y + (h / 2)))
+    return xmin, ymin, xmax, ymax
+
+
+def save_yolo_detect_to_txt(yolo_detections, save_name):
+    lines = []
+
+    for detection in yolo_detections:
+        box = detection[2]
+        (xmin, ymin, xmax, ymax) = convertBack(box[0], box[1], box[2], box[3])
+        confidence = detection[1]
+        lines.append("{} {} {} {} {} {}\n".format(detection[0], confidence, xmin, ymin, xmax, ymax))
+
+    with open(save_name, 'w') as f:
+        f.writelines(lines)
+
+
 
 
 # image = cv.imread('data/val/im_335.jpg')
