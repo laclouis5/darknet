@@ -36,12 +36,18 @@ import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
+from collections import deque
 import cv2 as cv
 from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
 
 from lxml.etree import Element, SubElement, tostring, parse
+from test import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt
+
+from utils import *
+from BoundingBox import BoundingBox
+from BoundingBoxes import BoundingBoxes
 
 def sample(probs):
     s = sum(probs)
@@ -416,7 +422,7 @@ def detect(net, meta, image, thresh=.5, hier_thresh=.5, nms=.45, debug= False):
     if debug: print("freed image")
     return ret
 
-def detect_image(net, meta, im, thresh=.5, hier_thresh=.5, nms=.45, debug= False):
+def detect_image(net, meta, im, thresh=.5, hier_thresh=.5, nms=.45, debug=False):
     #import cv2
     #custom_image_bgr = cv2.imread(image) # use: detect(,,imagePath,)
     #custom_image = cv2.cvtColor(custom_image_bgr, cv2.COLOR_BGR2RGB)
@@ -665,24 +671,22 @@ def convertBack(x, y, w, h):
 #         print("{} - mAP: {:.4} %, TP: {}, FP: {}, tot. pos.: {}".format(item['class'], 100*item['AP'], item["total TP"], item["total FP"], item["total positives"]))
 
 
-def save_detect_to_txt(annot_dir, save_dir, model, config_file, data_file):
-    images = [os.path.join(annot_dir, item) for item in os.listdir(annot_dir) if os.path.splitext(item)[1] == ".jpg"]
+def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file):
+    img_gen = ImageGeneratorFromFolder(folder_path)
+    create_dir(save_dir)
 
-    for image in images:
-        detections = performDetect(image, thresh=0.005, configPath=config_file, weightPath=model, metaPath=data_file, showImage=False)
+    for image in img_gen:
+        detections = performDetect(image, thresh=0.10, configPath=config_file, weightPath=model, metaPath=data_file, showImage=False)
 
         save_name = os.path.join(save_dir, os.path.splitext(os.path.basename(image))[0]) + ".txt"
         print(save_name)
 
         lines = []
-
         for detection in detections:
             box = detection[2]
-            # (x, y, w, h) = (box[0], box[1], box[2], box[3])
             (xmin, ymin, xmax, ymax) = convertBack(box[0], box[1], box[2], box[3])
             confidence = detection[1]
             lines.append("{} {} {} {} {} {}\n".format(detection[0], confidence, xmin, ymin, xmax, ymax))
-            # lines.append("{} {} {} {} {} {}\n".format(detection[0], confidence, x, y, w, h))
 
         with open(save_name, 'w') as f:
             f.writelines(lines)
@@ -836,15 +840,42 @@ def crop_detection_to_square(image_path, save_dir, model, config_file, meta_file
             f.writelines(content_out)
 
 
-def detect_on_folder(images, save_dir, model_path, cfg_path, data_path):
-    names = [os.path.split(image)[1] for image in images]
-    names = [os.path.join(save_dir, os.path.splitext(name)[0]) + '.jpg' for name in names]
+def draw_boxes(image, annotation, save_path, color=[255, 64, 0]):
+    save_name        = os.path.join(save_path, os.path.basename(image))
+    height, width, _ = cv.imread(image).shape
 
-    for i, image in enumerate(images):
-        detections = performDetect(imagePath=image, configPath=cfg_path, weightPath=model_path, metaPath=data_path, showImage=False)
-        img_out = cvDrawBoxes(detections, cv.imread(image))
+    boxes = read_detection_txt_file(annotation, (width, height))
+    img = cv.imread(image)
 
-        cv.imwrite(names[i], img_out)
+    for box in boxes.getBoundingBoxes():
+        add_bb_into_image(img, box, color=color, label=box.getClassId())
+
+    cv.imwrite(os.path.join(save_name), img)
+
+
+def draw_boxes_bboxes(image, bounding_boxes, save_dir, color=[255, 64, 0]):
+    image = image.copy()
+
+    for box in bounding_boxes.getBoundingBoxes():
+        add_bb_into_image(image, box, color=color, label=box.getClassId())
+        image_path = os.path.join(save_dir, box.getImageName())
+
+    cv.imwrite(image_path, image)
+
+
+def draw_boxes_folder(images_path, annotations_path, save_path):
+    images = ImageGeneratorFromFolder(images_path)
+
+    for image in images:
+        annotation = os.path.splitext(os.path.basename(image))[0] + ".txt"
+        annotation = os.path.join(annotations_path, annotation)
+
+        draw_boxes(image, annotation, save_path)
+
+
+def create_dir(directory):
+    if not os.path.isdir(directory):
+        os.mkdir(directory)
 
 
 def cv_egi_mask(image, thresh=40):
@@ -939,12 +970,166 @@ def create_operose_result(image):
         consort,
         img_name))
 
+def ImageGeneratorFromVideo(video_path, skip_frames=1, gray_scale=True, down_scale=1, ratio=None):
+    video = cv.VideoCapture(video_path)
+    ret = True
+    while ret:
+        for _ in range(skip_frames):
+            ret, frame = video.read()
+
+        if down_scale > 1:
+            frame = frame[::down_scale, ::down_scale]
+
+        if gray_scale:
+            frame = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+
+        if ratio is not None:
+            height, width = frame.shape[0:2]
+            new_width = ratio * height
+            to_crop   = int((width - new_width) / 2)
+
+            frame = frame[:, to_crop:-to_crop, :]
+
+        yield(ret, frame)
+
+
+def convert_to_grayscale(image):
+    frame = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+    return frame
+
+def ImageGeneratorFromFolder(folder, sorted=False):
+    files = [os.path.join(folder, item) for item in os.listdir(folder) if os.path.splitext(item)[1] == ".jpg"]
+    if sorted:
+        files.sort()
+    for file in files:
+        yield file
+
+
+def save_images_from_video(path_to_video, save_dir, nb_iter=100):
+    skip_frames = 2
+    video_gen = ImageGeneratorFromVideo(path_to_video, skip_frames=skip_frames, gray_scale=False)
+
+    if not os.path.isdir(save_dir):
+        os.mkdir(save_dir)
+
+    i = 0
+    while i < nb_iter:
+        _, frame = next(video_gen)
+        height, width = frame.shape[0:2]
+        new_ratio = 4/3
+        new_width = new_ratio * height
+        to_crop   = int((width - new_width) / 2)
+
+        frame = frame[:, to_crop:-to_crop, :]
+
+        frame_name = os.path.join(save_dir, "im_{}.jpg".format(i*skip_frames))
+        cv.imwrite(frame_name, frame, [int(cv.IMWRITE_JPEG_QUALITY), 100])
+        i += 1
+
+
+def filter_detections(video_path, video_param, save_dir, yolo_param, k=3):
+    image_dir = os.path.join(save_dir, "images")
+    annot_dir = os.path.join(save_dir, "annotations")
+    draw_dir  = os.path.join(save_dir, "draw")
+
+    create_dir(save_dir)
+    create_dir(image_dir)
+    create_dir(annot_dir)
+    create_dir(draw_dir)
+
+    images = ImageGeneratorFromVideo(
+        video_path,
+        skip_frames=video_param["skip_frames"],
+        gray_scale=video_param["gray_scale"],
+        down_scale=video_param["down_scale"],
+        ratio=video_param["ratio"])
+
+    boxes  = deque(maxlen=k)
+
+    _, first_image = next(images)
+
+    image_name = os.path.join(image_dir, "im_0.jpg")
+    cv.imwrite(image_name, first_image, [int(cv.IMWRITE_JPEG_QUALITY), 100])
+
+    detections = performDetect(
+        image_name,
+        configPath = yolo_param["cfg"],
+        weightPath =yolo_param["model"],
+        metaPath=yolo_param["obj"],
+        showImage=False)
+
+    bboxes = yolo_det_to_bboxes("im_0.jpg", detections)
+    save_bboxes_to_txt(bboxes, annot_dir)
+    boxes.append(bboxes)
+
+    draw_boxes_bboxes(first_image, bboxes, draw_dir)
+
+    first_image  = convert_to_grayscale(first_image)
+
+    prev_opt_flow = np.zeros_like(first_image)
+
+    i = 1
+    for _, image in images:
+        second_image  = convert_to_grayscale(image)
+        image_name    = os.path.join(image_dir, "im_{}.jpg".format(i))
+
+        optical_flow = cv.calcOpticalFlowFarneback(
+    		prev=first_image,
+    		next=second_image,
+    		flow=prev_opt_flow,
+    		pyr_scale=0.5,
+    		levels=4,
+    		winsize=32,
+    		iterations=3,
+    		poly_n=5,
+    		poly_sigma=1.2,
+    		flags=0)
+
+        dx = optical_flow[..., 0]
+        dy = optical_flow[..., 1]
+
+        mean_dx = dx.sum() / dx.size
+        mean_dy = dy.sum() / dy.size
+
+        print("Mean dx: {:.6}  Mean dy: {:.6}".format(mean_dx, mean_dy))
+
+        cv.imwrite(image_name, image, [int(cv.IMWRITE_JPEG_QUALITY), 100])
+
+        detections = performDetect(
+            image_name,
+            configPath = yolo_param["cfg"],
+            weightPath =yolo_param["model"],
+            metaPath=yolo_param["obj"],
+            showImage=False)
+
+        bboxes = yolo_det_to_bboxes("im_{}.jpg".format(i), detections)
+
+        [item.shiftBoundingBoxesBy(mean_dx, mean_dy) for item in boxes]
+        boxes.append(bboxes)
+
+        boxes_to_save = []
+        [boxes_to_save.extend(item.getBoundingBoxes()) for item in boxes]
+        [box.setImageName("im_{}.jpg".format(i)) for box in boxes_to_save]
+        boxes_to_save = BoundingBoxes(boxes_to_save)
+        save_bboxes_to_txt(boxes_to_save, annot_dir)
+
+        draw_boxes_bboxes(image, boxes_to_save, draw_dir)
+
+        first_image  = second_image
+        prev_opt_flow = optical_flow
+        i += 1
+
 
 if __name__ == "__main__":
     image_path  = "data/val/"
-    model_path  = "results/yolov3-tiny_3l_6/yolov3-tiny_3l_best.weights"
-    config_file = "results/yolov3-tiny_3l_6/yolov3-tiny_3l.cfg"
-    meta_path   = "results/yolov3-tiny_3l_6/obj.data"
+    model_path  = "results/yolo_v3_tiny_pan3_1/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou_best.weights"
+    config_file = "results/yolo_v3_tiny_pan3_1/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou.cfg"
+    meta_path   = "results/yolo_v3_tiny_pan3_1/obj.data"
+
+    yolo_param = {"model": model_path, "cfg": config_file, "obj": meta_path}
+
+    video_path  = "/media/deepwater/Elements/Louis/2019-07-25_larrere_videos/demo_tele_4K.mp4"
+    video_param = {"skip_frames": 5, "down_scale": 2, "gray_scale": False, "ratio": 4/3}
 
     consort  = 'bipbip'
     save_dir = 'save/'
@@ -954,7 +1139,8 @@ if __name__ == "__main__":
     plant_to_keep = []
 
     # Create a list of image names to process
-    images = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == ".jpg"]
+    # images = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == ".jpg"]
+
 
     # compute_mean_average_precision(
     #     folder=image_path,
@@ -962,7 +1148,14 @@ if __name__ == "__main__":
     #     config_file=config_file,
     #     data_obj=meta_path)
 
-    # save_detect_to_txt(image_path, save_dir+'detection-results/', model_path, config_file, meta_path)
+    # save_images_from_video(video_path, os.path.join(save_dir, "images_from_video/"), nb_iter=100)
+    # save_detect_to_txt(os.path.join(save_dir, "images_from_video/"), save_dir+'result/', model_path, config_file, meta_path)
+    # draw_boxes_folder(os.path.join(save_dir, "images_from_video"), os.path.join(save_dir, "result/"), save_path=save_dir)
+    image_vid  = os.path.join(save_dir, "images_from_video")
+    save_path  = os.path.join(save_dir, "save_dir")
+    annot_path = os.path.join(save_dir, "result")
+    filter_detections(video_path, video_param, save_path, yolo_param, k=5)
+
     # convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
 
     # with open("data/val.txt", "r") as f:
