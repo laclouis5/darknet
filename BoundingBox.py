@@ -103,8 +103,32 @@ class BoundingBox:
             return convertToRelativeValues((self._width_img, self._height_img),
                                            (self._x, self._x2, self._y, self._y2))
 
+
+    def shiftBoundingBoxBy(self, dx, dy):
+       self._x += dx
+       self._y += dy
+       self._x2 += dx
+       self._y2 == dy
+
+    # def clipBoundingBox(self, imgSize=None):
+    #    # Crop BBox to imageSize
+    #    def clip(box, imgSize):
+    #
+    #
+    #    if imgSize is None and self._width_img is None and self._height_img is None:
+    #        raise IOError('Parameter \'imgSize\' is required. It is necessary to inform the image size.')
+    #
+    #    if imgSize is not None:
+    #
+    #
+    #     return
+
+
     def getImageName(self):
         return self._imageName
+
+    def setImageName(self, new_name):
+        self._imageName = new_name
 
     def getConfidence(self):
         return self._classConfidence
