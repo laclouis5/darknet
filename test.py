@@ -237,6 +237,57 @@ def save_yolo_detect_to_txt(yolo_detections, save_name):
 
 
 
+# TODO
+def nms(bboxes, thres=0.75):
+    """ Preprocess boxes with the non-maximal suppression. """
+    if len(bboxes) == 0:
+        return []
+
+    boxes = np.array([box.getAbsoluteBoundingBox(BBFormat.XYX2Y2) for box in bboxes])
+
+    # initialize the list of picked indexes
+    pick = []
+    # sort the bounding boxes by the 'ymax' value
+    idxs = np.argsort(boxes[:, 3])
+
+    while len(idxs) > 0:
+        # get the index of the box with biggest 'ymax'
+        last = len(idxs) - 1
+        # add the index of this box to the picked indexes
+        pick.append(idxs[last])
+
+        # the maximum cordinates
+        max_box = np.maximum(boxes[idxs[last]], boxes[idxs[:last]])
+        # the minimum cordinates
+        min_box = np.minimum(boxes[idxs[last]], boxes[idxs[:last]])
+
+        # compute the common area
+        common_area = np.multiply(
+            np.maximum(0, min_box[:, 2] - max_box[:, 0] + 1),
+            np.maximum(0, min_box[:, 3] - max_box[:, 1] + 1)
+        )
+        # compute the area of 'box_last'
+        area_1 = np.multiply(
+            np.maximum(0, box_last[2] - box_last[0] + 1),
+            np.maximum(0, box_last[3] - box_last[1] + 1)
+        )
+        # compute the area of 'boxes'
+        area_2 = np.multiply(
+            np.maximum(0, boxes[:, 2] - boxes[:, 0] + 1),
+            np.maximum(0, boxes[:, 3] - boxes[:, 1] + 1)
+        )
+        # compute the union area
+        union_area = area_1 + area_2 - common_area
+        # compute the IOUs
+        iou = common_area / union_area
+
+        # delete all indexes with large overlap
+        idxs = np.delete(idxs, np.concatenate((
+            [last], np.where(iou > thres)[0])))
+
+    out_boxes = bboxes[pick]
+
+    return out_boxes.copy()
 
 # image = cv.imread('data/val/im_335.jpg')
 # out = egi_mask_2(image)
