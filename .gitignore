@@ -13,6 +13,7 @@
 *.dll
 *.lib
 *.dylib
+*.pyc
 mnist/
 caffe/
 grasp/

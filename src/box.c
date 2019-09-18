@@ -120,10 +120,10 @@ float box_iou(box a, box b)
     //return box_intersection(a, b)/box_union(a, b);
 
     float I = box_intersection(a, b);
-    float U = box_union(a, b);
-    if (I == 0 || U == 0) {
+    if (I == 0) {
         return 0;
     }
+    float U = box_union(a, b);
     return I / U;
 }
 
