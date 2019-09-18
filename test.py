@@ -9,24 +9,24 @@ from BoundingBoxes import BoundingBoxes
 from utils import *
 from PIL import Image
 
-def egi_mask(image, thresh=1.15):
-    image_np = np.array(image).astype(float)
 
-    image_np = 2*image_np[:, :, 1] / (image_np[:, :, 0] + image_np[:, :, 2] + 0.001)
-    image_gf = filters.gaussian(image_np, sigma=1, mode='reflect')
+# def egi_mask(image, thresh=1.15):
+#     image_np = np.array(image).astype(float)
+#
+#     image_np = 2*image_np[:, :, 1] / (image_np[:, :, 0] + image_np[:, :, 2] + 0.001)
+#     image_gf = filters.gaussian(image_np, sigma=1, mode='reflect')
+#
+#     image_bin = image_gf > 1.15
+#
+#     image_morph = morphology.binary_erosion(image_bin, morphology.disk(3))
+#     image_morph = morphology.binary_dilation(image_morph, morphology.disk(3))
+#
+#     image_out = morphology.remove_small_objects(image_morph, 400)
+#     image_out = morphology.remove_small_holes(image_out, 800)
+#
+#     return image_out
 
-    image_bin = image_gf > 1.15
-
-    image_morph = morphology.binary_erosion(image_bin, morphology.disk(3))
-    image_morph = morphology.binary_dilation(image_morph, morphology.disk(3))
-
-    image_out = morphology.remove_small_objects(image_morph, 400)
-    image_out = morphology.remove_small_holes(image_out, 800)
-
-    return image_out
-
-
-def egi_mask_2(image, thresh=40):
+def egi_mask(image, thresh=40):
     image_np  = np.array(image).astype(np.float)
     image_egi = 2 * image_np[:, :, 1] - image_np[:, :, 0] - image_np[:, :, 2]
     image_gf  = filters.gaussian(image_egi, sigma=1, mode='reflect')
@@ -133,6 +133,11 @@ def compute_struct_tensor(image_path, w, sigma=1.5):
         return img_coherency, img_orientation
 
 
+def create_dir(directory):
+    if not os.path.isdir(directory):
+        os.mkdir(directory)
+
+
 def read_gt_annotation_file(file_path, img_size):
     bounding_boxes = BoundingBoxes(bounding_boxes=[])
     image_name = os.path.basename(os.path.splitext(file_path)[0] + '.jpg')
@@ -155,7 +160,7 @@ def yolo_det_to_bboxes(image_name, yolo_detections):
         label      = detection[0]
         confidence = detection[1]
         box        = detection[2]
-        (xmin, ymin, xmax, ymax) = convertBack(box[0], box[1], box[2], box[3])
+        (xmin, ymin, xmax, ymax) = xywh_to_xyx2y2(box[0], box[1], box[2], box[3])
 
         bbox = BoundingBox(imageName=image_name, classId=label, x=xmin, y=ymin, w=xmax, h=ymax, typeCoordinates=CoordinatesType.Absolute, classConfidence=confidence, bbType=BBType.Detected, format=BBFormat.XYX2Y2)
 
@@ -215,7 +220,7 @@ def parse_yolo_folder(data_dir):
     return bounding_boxes
 
 
-def convertBack(x, y, w, h):
+def xywh_to_xyx2y2(x, y, w, h):
     xmin = int(round(x - (w / 2)))
     xmax = int(round(x + (w / 2)))
     ymin = int(round(y - (h / 2)))
@@ -228,7 +233,7 @@ def save_yolo_detect_to_txt(yolo_detections, save_name):
 
     for detection in yolo_detections:
         box = detection[2]
-        (xmin, ymin, xmax, ymax) = convertBack(box[0], box[1], box[2], box[3])
+        (xmin, ymin, xmax, ymax) = xywh_to_xyx2y2(box[0], box[1], box[2], box[3])
         confidence = detection[1]
         lines.append("{} {} {} {} {} {}\n".format(detection[0], confidence, xmin, ymin, xmax, ymax))
 
@@ -236,58 +241,25 @@ def save_yolo_detect_to_txt(yolo_detections, save_name):
         f.writelines(lines)
 
 
+def nms(bboxes, conf_thresh=0.25, nms_thresh=0.4):
+    labels = bboxes.getClasses()
+    filtered_boxes = []
 
-# TODO
-def nms(bboxes, thres=0.75):
-    """ Preprocess boxes with the non-maximal suppression. """
-    if len(bboxes) == 0:
-        return []
+    for label in labels:
+        boxes_label = bboxes.getBoundingBoxByClass(label)
+        boxes = [box.getAbsoluteBoundingBox(BBFormat.XYWH) for box in boxes_label]
+        boxes = [[box[0], box[1], box[2], box[3]] for box in boxes]
+        conf  = [box.getConfidence() for box in boxes_label]
 
-    boxes = np.array([box.getAbsoluteBoundingBox(BBFormat.XYX2Y2) for box in bboxes])
+        indices = cv.dnn.NMSBoxes(boxes, conf, conf_thresh, nms_thresh)
+        indices = [index for list in indices for index in list]
 
-    # initialize the list of picked indexes
-    pick = []
-    # sort the bounding boxes by the 'ymax' value
-    idxs = np.argsort(boxes[:, 3])
+        boxes_to_keep = np.array(boxes_label)[indices]
+        boxes_to_keep = boxes_to_keep.tolist()
 
-    while len(idxs) > 0:
-        # get the index of the box with biggest 'ymax'
-        last = len(idxs) - 1
-        # add the index of this box to the picked indexes
-        pick.append(idxs[last])
+        filtered_boxes += boxes_to_keep
 
-        # the maximum cordinates
-        max_box = np.maximum(boxes[idxs[last]], boxes[idxs[:last]])
-        # the minimum cordinates
-        min_box = np.minimum(boxes[idxs[last]], boxes[idxs[:last]])
-
-        # compute the common area
-        common_area = np.multiply(
-            np.maximum(0, min_box[:, 2] - max_box[:, 0] + 1),
-            np.maximum(0, min_box[:, 3] - max_box[:, 1] + 1)
-        )
-        # compute the area of 'box_last'
-        area_1 = np.multiply(
-            np.maximum(0, box_last[2] - box_last[0] + 1),
-            np.maximum(0, box_last[3] - box_last[1] + 1)
-        )
-        # compute the area of 'boxes'
-        area_2 = np.multiply(
-            np.maximum(0, boxes[:, 2] - boxes[:, 0] + 1),
-            np.maximum(0, boxes[:, 3] - boxes[:, 1] + 1)
-        )
-        # compute the union area
-        union_area = area_1 + area_2 - common_area
-        # compute the IOUs
-        iou = common_area / union_area
-
-        # delete all indexes with large overlap
-        idxs = np.delete(idxs, np.concatenate((
-            [last], np.where(iou > thres)[0])))
-
-    out_boxes = bboxes[pick]
-
-    return out_boxes.copy()
+    return BoundingBoxes(bounding_boxes=filtered_boxes)
 
 # image = cv.imread('data/val/im_335.jpg')
 # out = egi_mask_2(image)
