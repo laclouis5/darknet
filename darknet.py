@@ -43,7 +43,7 @@ from skimage import io, filters, morphology
 from joblib import Parallel, delayed
 
 from lxml.etree import Element, SubElement, tostring, parse
-from test import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt
+from test import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir
 
 from utils import *
 from BoundingBox import BoundingBox
@@ -676,17 +676,21 @@ def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file):
     create_dir(save_dir)
 
     for image in img_gen:
-        detections = performDetect(image, thresh=0.10, configPath=config_file, weightPath=model, metaPath=data_file, showImage=False)
+        detections = performDetect(image, thresh=0.005, configPath=config_file, weightPath=model, metaPath=data_file, showImage=False)
 
         save_name = os.path.join(save_dir, os.path.splitext(os.path.basename(image))[0]) + ".txt"
         print(save_name)
 
+        (height, width) = cv.imread(image).shape[0:2]
+
         lines = []
         for detection in detections:
             box = detection[2]
-            (xmin, ymin, xmax, ymax) = convertBack(box[0], box[1], box[2], box[3])
+            label = detection[0]
+            # (xmin, ymin, xmax, ymax) = convertBack(box[0], box[1], box[2], box[3])
+            (x, y, w, h) = box[0]/width, box[1]/height, box[2]/width, box[3]/height
             confidence = detection[1]
-            lines.append("{} {} {} {} {} {}\n".format(detection[0], confidence, xmin, ymin, xmax, ymax))
+            lines.append("{} {} {} {} {} {}\n".format(map_labels[label], confidence, x, y, w, h))
 
         with open(save_name, 'w') as f:
             f.writelines(lines)
@@ -873,103 +877,6 @@ def draw_boxes_folder(images_path, annotations_path, save_path):
         draw_boxes(image, annotation, save_path)
 
 
-def create_dir(directory):
-    if not os.path.isdir(directory):
-        os.mkdir(directory)
-
-
-def cv_egi_mask(image, thresh=40):
-    image_np = np.array(image).astype(np.float32)
-    image_np = 2 * image_np[:, :, 1] - image_np[:, :, 0] - image_np[:, :, 2]
-
-    image_gf  = cv.GaussianBlur(src=image_np, ksize=(0, 0), sigmaX=3)
-    image_bin = image_gf > thresh
-
-    nb_components, output, stats, _ = cv.connectedComponentsWithStats(image_bin.astype(np.uint8), connectivity=8)
-
-    sizes = stats[1:, -1]
-    nb_components = nb_components - 1
-
-    img_out = np.zeros((output.shape))
-
-    for i in range(0, nb_components):
-        if sizes[i] >= 500:
-            img_out[output == i + 1] = 255
-
-    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
-    image_morph = cv.morphologyEx(img_out, op=cv.MORPH_CLOSE, kernel=kernel)
-
-    return image_morph
-
-
-def egi_mask(image, thresh=40):
-    image_np  = np.array(image).astype(float)
-    image_egi = 2 * image_np[:, :, 1] - image_np[:, :, 0] - image_np[:, :, 2]
-    image_gf  = filters.gaussian(image_egi, sigma=1, mode='reflect')
-    image_bin = image_gf > thresh
-
-    image_morph = morphology.remove_small_objects(image_bin, 400)
-    image_out   = morphology.remove_small_holes(image_morph, 800)
-
-    return image_out
-
-
-def create_operose_result(image):
-    # Creates and populate XML tree, save plant masks as PGM and XLM file
-    # for each images
-    img_name  = os.path.split(os.path.splitext(image)[0])[1]
-    image_egi = egi_mask(io.imread(image))
-    im_in     = Image.fromarray(np.uint8(255 * image_egi))
-    # image_egi = cv_egi_mask(cv.imread(image))
-    # im_in     = Image.fromarray(image_egi)
-
-    h, w = image_egi.shape
-
-    # Perform detection using Darknet[1]
-    detections = performDetect(
-        imagePath=image,
-        configPath=config_file,
-        weightPath=model_path,
-        metaPath=meta_path,
-        showImage=False)
-
-    # XML tree init
-    xml_tree = XMLTree(
-        image_name=img_name,
-        width=w,
-        height=h,
-        user_name=consort)
-
-    # For every detection save PGM mask and add field to the xml tree
-    for detection in detections:
-        name = detection[0]
-
-        if (name not in plant_to_keep) and plant_to_keep: continue
-
-        bbox = detection[2]
-        # print('Annotation: {}'.format(annotation))
-        # print('Image Size: {} x {}'.format(img_w, img_h))
-
-        xmin, ymin, xmax, ymax = convertBack(bbox[0], bbox[1], bbox[2], bbox[3])
-        box = (xmin, ymin, xmax, ymax)
-
-        xml_tree.add_mask_zone(plant_type='PlanteInteret', bbox=box, name=name)
-
-        im_out = Image.new(mode='1', size=(w, h))
-        region = im_in.crop(box)
-        im_out.paste(region, box)
-
-        im_out.save('{}{}_{}_{}.pgm'.format(
-            save_dir,
-            consort,
-            img_name,
-            str(xml_tree.get_current_mask_id())))
-
-    xml_tree.save('{}{}_{}.xml'.format(
-        save_dir,
-        consort,
-        img_name))
-
 def ImageGeneratorFromVideo(video_path, skip_frames=1, gray_scale=True, down_scale=1, ratio=None):
     video = cv.VideoCapture(video_path)
     ret = True
@@ -996,6 +903,7 @@ def ImageGeneratorFromVideo(video_path, skip_frames=1, gray_scale=True, down_sca
 def convert_to_grayscale(image):
     frame = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
     return frame
+
 
 def ImageGeneratorFromFolder(folder, sorted=False):
     files = [os.path.join(folder, item) for item in os.listdir(folder) if os.path.splitext(item)[1] == ".jpg"]
@@ -1027,7 +935,7 @@ def save_images_from_video(path_to_video, save_dir, nb_iter=100):
         i += 1
 
 
-def filter_detections(video_path, video_param, save_dir, yolo_param, k=3):
+def filter_detections(video_path, video_param, save_dir, yolo_param, k=8):
     image_dir = os.path.join(save_dir, "images")
     annot_dir = os.path.join(save_dir, "annotations")
     draw_dir  = os.path.join(save_dir, "draw")
@@ -1044,7 +952,7 @@ def filter_detections(video_path, video_param, save_dir, yolo_param, k=3):
         down_scale=video_param["down_scale"],
         ratio=video_param["ratio"])
 
-    boxes  = deque(maxlen=k)
+    boxes = deque(maxlen=k)
 
     _, first_image = next(images)
 
@@ -1064,26 +972,26 @@ def filter_detections(video_path, video_param, save_dir, yolo_param, k=3):
 
     draw_boxes_bboxes(first_image, bboxes, draw_dir)
 
-    first_image  = convert_to_grayscale(first_image)
+    first_image = convert_to_grayscale(first_image)
 
     prev_opt_flow = np.zeros_like(first_image)
 
     i = 1
     for _, image in images:
-        second_image  = convert_to_grayscale(image)
-        image_name    = os.path.join(image_dir, "im_{}.jpg".format(i))
+        second_image = convert_to_grayscale(image)
+        image_name = os.path.join(image_dir, "im_{}.jpg".format(i))
 
         optical_flow = cv.calcOpticalFlowFarneback(
-    		prev=first_image,
-    		next=second_image,
-    		flow=prev_opt_flow,
-    		pyr_scale=0.5,
-    		levels=4,
-    		winsize=32,
-    		iterations=3,
-    		poly_n=5,
-    		poly_sigma=1.2,
-    		flags=0)
+            prev=first_image,
+            next=second_image,
+            flow=prev_opt_flow,
+            pyr_scale=0.5,
+            levels=4,
+            winsize=32,
+            iterations=3,
+            poly_n=5,
+            poly_sigma=1.2,
+            flags=0)
 
         dx = optical_flow[..., 0]
         dy = optical_flow[..., 1]
@@ -1097,8 +1005,8 @@ def filter_detections(video_path, video_param, save_dir, yolo_param, k=3):
 
         detections = performDetect(
             image_name,
-            configPath = yolo_param["cfg"],
-            weightPath =yolo_param["model"],
+            configPath=yolo_param["cfg"],
+            weightPath=yolo_param["model"],
             metaPath=yolo_param["obj"],
             showImage=False)
 
@@ -1109,13 +1017,16 @@ def filter_detections(video_path, video_param, save_dir, yolo_param, k=3):
 
         boxes_to_save = []
         [boxes_to_save.extend(item.getBoundingBoxes()) for item in boxes]
+        boxes_to_save = [box for box in boxes_to_save if box.getClassId() == "leek"]
         [box.setImageName("im_{}.jpg".format(i)) for box in boxes_to_save]
         boxes_to_save = BoundingBoxes(boxes_to_save)
-        save_bboxes_to_txt(boxes_to_save, annot_dir)
 
-        draw_boxes_bboxes(image, boxes_to_save, draw_dir)
+        boxes_to_keep = nms(boxes_to_save)
 
-        first_image  = second_image
+        save_bboxes_to_txt(boxes_to_keep, annot_dir)
+        draw_boxes_bboxes(image, boxes_to_keep, draw_dir)
+
+        first_image = second_image
         prev_opt_flow = optical_flow
         i += 1
 
@@ -1126,21 +1037,21 @@ if __name__ == "__main__":
     config_file = "results/yolo_v3_tiny_pan3_1/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou.cfg"
     meta_path   = "results/yolo_v3_tiny_pan3_1/obj.data"
 
-    yolo_param = {"model": model_path, "cfg": config_file, "obj": meta_path}
+    yolo_param  = {"model": model_path, "cfg": config_file, "obj": meta_path}
 
     video_path  = "/media/deepwater/Elements/Louis/2019-07-25_larrere_videos/demo_tele_4K.mp4"
     video_param = {"skip_frames": 5, "down_scale": 2, "gray_scale": False, "ratio": 4/3}
 
-    consort  = 'bipbip'
+    consort  = 'Bipbip'
     save_dir = 'save/'
     labels_to_names = ['maize', 'bean', 'leek', 'maize_stem', 'bean_stem', 'leek_stem']
+    map_labels      = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
     # save_dir = /Users/louislac/Downloads/save/
 
     plant_to_keep = []
 
     # Create a list of image names to process
-    # images = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == ".jpg"]
-
+    images = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == ".jpg"]
 
     # compute_mean_average_precision(
     #     folder=image_path,
@@ -1154,8 +1065,10 @@ if __name__ == "__main__":
     image_vid  = os.path.join(save_dir, "images_from_video")
     save_path  = os.path.join(save_dir, "save_dir")
     annot_path = os.path.join(save_dir, "result")
+    
     filter_detections(video_path, video_param, save_path, yolo_param, k=5)
 
+    # save_detect_to_txt(image_path, save_dir, model_path, config_file, meta_path)
     # convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
 
     # with open("data/val.txt", "r") as f:
@@ -1170,8 +1083,3 @@ if __name__ == "__main__":
 
     # crop_annotation_to_square(image_path, save_dir+'ground-truth', labels_to_names)
     # crop_detection_to_square(image_path, save_dir+'detection-results', model_path, config_file, meta_path)
-
-    # Parallel computation for every images
-    # Parallel(n_jobs=-1, backend="multiprocessing")(map(
-    #     delayed(create_operose_result),
-    #     images))
