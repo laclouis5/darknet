@@ -3,7 +3,6 @@ import datetime
 import os
 
 class XMLTree:
-
     def __init__(self, image_name, width, height, user_name='Unknown user', date=str(datetime.date.today())):
         """
         Creates a ElementTree containing results of classification.
