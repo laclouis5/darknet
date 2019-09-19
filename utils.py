@@ -1,6 +1,8 @@
 from enum import Enum
-import cv2
-
+try:
+    import cv2
+except:
+    pass
 class MethodAveragePrecision(Enum):
     """
     Class representing if the coordinates are relative to the
