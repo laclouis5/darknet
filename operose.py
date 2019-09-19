@@ -2,6 +2,10 @@ try:
     import cv2 as cv
 except:
     from skimage import io, filters, morphology
+<<<<<<< HEAD
+=======
+
+>>>>>>> 88757f85ba576d7d0a5cb97fce6c2616a40d9bc2
 import numpy as np
 from PIL import Image
 from joblib import Parallel, delayed
@@ -18,15 +22,27 @@ def create_operose_result(args):
     model_path  = network_params["model"]
     meta_path   = network_params["obj"]
 
+<<<<<<< HEAD
     print(args)
 
+=======
+>>>>>>> 88757f85ba576d7d0a5cb97fce6c2616a40d9bc2
     consort = "Bipbip"
 
     # Creates and populate XML tree, save plant masks as PGM and XLM file
     # for each images
     img_name  = os.path.basename(image)
+<<<<<<< HEAD
     image_egi = egi_mask(io.imread(image))
     im_in     = Image.fromarray(np.uint8(255 * image_egi))
+=======
+    try:
+        image_egi = cv_egi_mask(cv.imread(image))
+        im_in     = Image.fromarray(image_egi)
+    except:
+        image_egi = egi_mask(io.imread(image))
+        im_in     = Image.fromarray(np.uint8(255 * image_egi))
+>>>>>>> 88757f85ba576d7d0a5cb97fce6c2616a40d9bc2
 
     h, w = image_egi.shape[0:2]
 
@@ -38,8 +54,11 @@ def create_operose_result(args):
         metaPath=meta_path,
         showImage=False)
 
+<<<<<<< HEAD
     [print(detection[2]) for detection in detections]
 
+=======
+>>>>>>> 88757f85ba576d7d0a5cb97fce6c2616a40d9bc2
     # XML tree init
     xml_tree = XMLTree(
         image_name=img_name,
@@ -101,4 +120,8 @@ if __name__ == "__main__":
     keep_challenge   = ["maize", "bean"]
     save_dir_operose = os.path.join("save/operose/")
 
+<<<<<<< HEAD
     process_operose(image_path, yolo_param, plants_to_keep=keep_challenge, save_dir=save_dir_operose, nb_proc=1)
+=======
+    process_operose(image_path, yolo_param, plants_to_keep=keep_challenge, save_dir=save_dir_operose)
+>>>>>>> 88757f85ba576d7d0a5cb97fce6c2616a40d9bc2

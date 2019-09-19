@@ -7,11 +7,7 @@ import matplotlib.pyplot as plt
 class BoundingBoxes:
     def __init__(self, bounding_boxes=[]):
         self._boundingBoxes = bounding_boxes
-<<<<<<< HEAD
         
-=======
-
->>>>>>> 88757f85ba576d7d0a5cb97fce6c2616a40d9bc2
     def repr(self):
         repr = ""
         for d in self._boundingBoxes:
@@ -19,11 +15,14 @@ class BoundingBoxes:
             if d.getBBType() is BBType.GroundTruth:
                 repr += "{} {} {} {} {}\n".format(d.getClassId(), box[0], box[1], box[2], box[3])
             elif d.getBBType() is BBType.Detected:
-                    repr += "{} {} {} {} {} {}\n".format(d.getClassId, d.getConfidence(), box[0], box[1], box[2], box[3])
+                    repr += "{} {} {} {} {} {}\n".format(d.getClassId(), d.getConfidence(), box[0], box[1], box[2], box[3])
         return repr
 
     def addBoundingBox(self, bb):
-        self._boundingBoxes.append(bb)
+        if isinstance(bb, list):
+            self._boundingBoxes.extend(bb)
+        else:
+            self._boundingBoxes.append(bb)
 
     def removeBoundingBox(self, _boundingBox):
         for d in self._boundingBoxes:
@@ -37,18 +36,19 @@ class BoundingBoxes:
     def getBoundingBoxes(self):
         return self._boundingBoxes
 
-<<<<<<< HEAD
     def shiftBoundingBoxesBy(self, dx, dy):
         [box.shiftBoundingBoxBy(dx, dy) for box in self._boundingBoxes]
 
-=======
->>>>>>> 88757f85ba576d7d0a5cb97fce6c2616a40d9bc2
     def getBoundingBoxByClass(self, classId):
         boundingBoxes = []
         for d in self._boundingBoxes:
             if d.getClassId() == classId:  # get only specified bounding box type
                 boundingBoxes.append(d)
         return boundingBoxes
+
+    def mapLabels(self, dic):
+        for bbox in self._boundingBoxes:
+            bbox._classId = dic[bbox.getClassId()]
 
     def shuffleBoundingBoxes(self):
         shuffle(self._boundingBoxes)
@@ -109,11 +109,25 @@ class BoundingBoxes:
     def stats(self):
         classes = self.getClasses()
         stats = dict.fromkeys(classes, 0)
+        stats_image = dict.fromkeys(classes, 0)
+
+        nb_images = len(self.getNames())
+
         for bbox in self._boundingBoxes:
             stats[bbox.getClassId()] += 1
-        # [stats[bbox.getClassId()] += 1 for bbox in self._boundingBoxes]
 
-        return stats
+        for image_name in self.getNames():
+            boxes = self.getBoundingBoxesByImageName(image_name)
+            label = boxes[0].getClassId()
+            stats_image[label] += 1
+
+        print("Total number of images: {}".format(nb_images))
+        for (key, val) in stats_image.items():
+            print("  {}: {}".format(key, val))
+        print("Total number of bounding boxes: {}".format(self.count()))
+        for (key, val) in stats.items():
+            print("  {}: {}".format(key, val))
+
 
     def clone(self):
         newBoundingBoxes = BoundingBoxes()

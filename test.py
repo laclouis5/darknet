@@ -2,7 +2,10 @@ from skimage import io, data, filters, feature, color, exposure, morphology
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-import cv2 as cv
+try:
+    import cv2 as cv
+except:
+    pass
 import os
 from BoundingBox import BoundingBox
 from BoundingBoxes import BoundingBoxes

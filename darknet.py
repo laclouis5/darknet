@@ -37,10 +37,14 @@ import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 from collections import deque
+<<<<<<< HEAD
 try:
     import cv2 as cv
 except:
     pass
+=======
+import cv2 as cv
+>>>>>>> 88757f85ba576d7d0a5cb97fce6c2616a40d9bc2
 from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
@@ -1068,7 +1072,11 @@ if __name__ == "__main__":
     image_vid  = os.path.join(save_dir, "images_from_video")
     save_path  = os.path.join(save_dir, "save_dir")
     annot_path = os.path.join(save_dir, "result")
+<<<<<<< HEAD
 
+=======
+    
+>>>>>>> 88757f85ba576d7d0a5cb97fce6c2616a40d9bc2
     filter_detections(video_path, video_param, save_path, yolo_param, k=5)
 
     # save_detect_to_txt(image_path, save_dir, model_path, config_file, meta_path)

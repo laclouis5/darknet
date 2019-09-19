@@ -14,9 +14,11 @@
 *.lib
 *.dylib
 *.pyc
+<<<<<<< HEAD
 results/
+=======
+>>>>>>> 88757f85ba576d7d0a5cb97fce6c2616a40d9bc2
 mnist/
-data/
 caffe/
 grasp/
 images/
@@ -24,10 +26,17 @@ opencv/
 convnet/
 decaf/
 submission/
+<<<<<<< HEAD
 backup/
 save/
 models/
 results/
+=======
+data/
+save/
+results/
+models/
+>>>>>>> 88757f85ba576d7d0a5cb97fce6c2616a40d9bc2
 build/darknet/*
 build_*/
 !build/darknet/YoloWrapper.cs
