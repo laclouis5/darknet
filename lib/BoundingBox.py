@@ -103,8 +103,6 @@ class BoundingBox:
             return convertToRelativeValues((self._width_img, self._height_img),
                                            (self._x, self._x2, self._y, self._y2))
 
-<<<<<<< HEAD
-
     def shiftBoundingBoxBy(self, dx, dy):
        self._x += dx
        self._y += dy
@@ -131,11 +129,9 @@ class BoundingBox:
     def setImageName(self, new_name):
         self._imageName = new_name
 
-=======
     def getImageName(self):
         return self._imageName
 
->>>>>>> 88757f85ba576d7d0a5cb97fce6c2616a40d9bc2
     def getConfidence(self):
         return self._classConfidence
 

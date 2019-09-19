@@ -7,11 +7,7 @@ import matplotlib.pyplot as plt
 class BoundingBoxes:
     def __init__(self, bounding_boxes=[]):
         self._boundingBoxes = bounding_boxes
-<<<<<<< HEAD
-        
-=======
 
->>>>>>> 88757f85ba576d7d0a5cb97fce6c2616a40d9bc2
     def repr(self):
         repr = ""
         for d in self._boundingBoxes:
@@ -37,12 +33,9 @@ class BoundingBoxes:
     def getBoundingBoxes(self):
         return self._boundingBoxes
 
-<<<<<<< HEAD
     def shiftBoundingBoxesBy(self, dx, dy):
         [box.shiftBoundingBoxBy(dx, dy) for box in self._boundingBoxes]
 
-=======
->>>>>>> 88757f85ba576d7d0a5cb97fce6c2616a40d9bc2
     def getBoundingBoxByClass(self, classId):
         boundingBoxes = []
         for d in self._boundingBoxes:
