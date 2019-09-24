@@ -7,9 +7,13 @@ from PIL import Image
 from joblib import Parallel, delayed
 import os
 
+import argparse
+import glob
+
 from darknet import performDetect, convertBack
 from my_xml_toolbox import XMLTree
 from test import egi_mask, cv_egi_mask, create_dir
+
 
 def create_operose_result(args):
     (image, save_dir, network_params, plants_to_keep) = args
@@ -24,7 +28,7 @@ def create_operose_result(args):
 
     # Creates and populate XML tree, save plant masks as PGM and XLM file
     # for each images
-    img_name  = os.path.basename(image)
+    img_name = os.path.basename(image)
 
     try:
         image_egi = cv_egi_mask(cv.imread(image))
@@ -90,17 +94,49 @@ def process_operose(image_path, network_params, save_dir="operose/", plants_to_k
 
     Parallel(n_jobs=nb_proc, backend="multiprocessing")(delayed(create_operose_result)(arg) for arg in args)
 
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("images_path", help="Path where images for detection are stored.")
+    parser.add_argument("save_dir", help="Directory to save masks and xml files.")
+    parser.add_argument("model", help="Directory containing cfg, data ans weights files.")
+    parser.add_argument("-l", action="append", dest="labels", help="Labels to keep. Default is all.")
+    parser.add_argument("-nproc", type=int, help="Number of proc to use to speed up inference. Default is 1. -1 for using all available procs.")
+    args = parser.parse_args()
+
+    image_path = os.path.join(args.images_path)
+    save_dir_operose = os.path.join(args.save_dir)
+    keep_challenge = args.labels
+    path = args.model
+    nproc = args.nproc
+
+    model_path  = glob.glob(os.path.join(path, "*.weights"))[0]
+    config_file = glob.glob(os.path.join(path, "*.cfg"))[0]
+    meta_path   = glob.glob(os.path.join(path, "*.data"))[0]
+    yolo_param  = {"model": model_path, "cfg": config_file, "obj": meta_path}
+
+    print()
+    print("PARAM USED:")
+    print("Image directory: {}".format(image_path))
+    print("Save directory: {}".format(save_dir_operose))
+    if keep_challenge is None:
+        print("Labels to keep: all")
+    else:
+        print("Labels to keep: {}".format(keep_challenge))
+    if nproc is None:
+        print("Number of proc used: 1")
+    else:
+        print("Number of proc used: {}".format(nproc))
+    print("Model in use: ")
+    print("  {}".format(model_path))
+    print("  {}".format(config_file))
+    print("  {}".format(meta_path))
+    print()
+
+    if nproc is not None:
+        process_operose(image_path, yolo_param, plants_to_keep=keep_challenge, save_dir=save_dir_operose, nb_proc=nproc)
+    else:
+        process_operose(image_path, yolo_param, plants_to_keep=keep_challenge, save_dir=save_dir_operose, nb_proc=1)
+
 
 if __name__ == "__main__":
-    image_path = "data/val/"
-
-    model_path  = "results/yolo_v3_tiny_pan_mixup_1/yolo_v3_tiny_pan_mixup_best.weights"
-    config_file = "results/yolo_v3_tiny_pan_mixup_1/yolo_v3_tiny_pan_mixup.cfg"
-    meta_path   = "results/yolo_v3_tiny_pan_mixup_1/obj.data"
-
-    yolo_param = {"model": model_path, "cfg": config_file, "obj": meta_path}
-
-    keep_challenge   = ["maize", "bean"]
-    save_dir_operose = os.path.join("save/operose/")
-
-    process_operose(image_path, yolo_param, plants_to_keep=keep_challenge, save_dir=save_dir_operose, nb_proc=4)
+    main()
