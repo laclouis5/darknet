@@ -11,9 +11,8 @@ import argparse
 import glob
 
 from darknet import performDetect, convertBack
-from my_xml_toolbox import XMLTree
+from my_xml_toolbox import XMLTree, XMLTree2
 from test import egi_mask, cv_egi_mask, create_dir
-
 
 def create_operose_result(args):
     (image, save_dir, network_params, plants_to_keep) = args
@@ -48,11 +47,10 @@ def create_operose_result(args):
         showImage=False)
 
     # XML tree init
-    xml_tree = XMLTree(
+    xml_tree = XMLTree2(
         image_name=img_name,
         width=w,
-        height=h,
-        user_name=consort)
+        height=h)
 
     # For every detection save PGM mask and add field to the xml tree
     for detection in detections:
@@ -64,22 +62,20 @@ def create_operose_result(args):
         bbox = detection[2]
         box  = convertBack(bbox[0], bbox[1], bbox[2], bbox[3])
 
-        xml_tree.add_mask_zone(plant_type='PlanteInteret', bbox=box, name=name)
+        xml_tree.add_mask(name)
 
         im_out = Image.new(mode='1', size=(w, h))
         region = im_in.crop(box)
         im_out.paste(region, box)
 
-        im_out.save('{}{}_{}_{}.png'.format(
-            save_dir,
+        image_name_out = '{}_{}_{}.png'.format(
             consort,
             os.path.splitext(img_name)[0],
-            str(xml_tree.get_current_mask_id())))
+            str(xml_tree.plant_count-1))
 
-    xml_tree.save('{}{}_{}.xml'.format(
-        save_dir,
-        consort,
-        os.path.splitext(img_name)[0]))
+        im_out.save(os.path.join(save_dir, image_name_out))
+
+    xml_tree.save(save_dir)
 
 
 def process_operose(image_path, network_params, save_dir="operose/", plants_to_keep=None, nb_proc=-1):
