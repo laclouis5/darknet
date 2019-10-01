@@ -39,4 +39,4 @@ def reformat(folder, save_dir):
 
 
 if __name__ == "__main__":
-    reformat("/Users/louislac/Downloads/operose", "/Users/louislac/Downloads/result/")
+    reformat("/Users/louislac/Downloads/bipbip_haricot", "/Users/louislac/Downloads/new_haricot")

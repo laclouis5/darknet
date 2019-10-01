@@ -1055,7 +1055,7 @@ def filter_detections_2(folder, save_dir, model_param, k=5):
             line = f_read.readline()
 
     # Manage first image
-    (image, dx, dy, t) = line[0]
+    image = line[0]
 
     detections = performDetect(
         image,
