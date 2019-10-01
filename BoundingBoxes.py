@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 class BoundingBoxes:
     def __init__(self, bounding_boxes=[]):
         self._boundingBoxes = bounding_boxes
-        
+
     def repr(self):
         repr = ""
         for d in self._boundingBoxes:
@@ -29,6 +29,14 @@ class BoundingBoxes:
             if d == _boundingBox:
                 del self._boundingBoxes[d]
                 return
+
+    def keepOnlyName(self, name):
+        new_bb = []
+        for d in self._boundingBoxes:
+            if d.getClassId() == name:
+                new_bb.append(d)
+        self._boundingBoxes = new_bb
+
 
     def removeAllBoundingBoxes(self):
         self._boundingBoxes = []
