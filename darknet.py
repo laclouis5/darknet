@@ -874,8 +874,6 @@ def draw_deque_boxes(image, deq, save_path):
     hsv = plt.get_cmap("cool")
     colors = hsv(np.linspace(0, 1, deq.maxlen))[..., :3]
 
-    print("DEQUE: {}".format(deq))
-
     i=0
     for bboxes in reversed(deq):
         for box in bboxes.getBoundingBoxes():
