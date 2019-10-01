@@ -862,12 +862,27 @@ def draw_boxes(image, annotation, save_path, color=[255, 64, 0]):
 
 def draw_boxes_bboxes(image, bounding_boxes, save_dir, color=[255, 64, 0]):
     image = image.copy()
-
     for box in bounding_boxes.getBoundingBoxes():
         add_bb_into_image(image, box, color=color, label=box.getClassId())
         image_path = os.path.join(save_dir, box.getImageName())
 
     cv.imwrite(image_path, image)
+
+
+def draw_deque_boxes(image, deq, save_path):
+    image = image.copy()
+    hsv = plt.get_cmap("cool")
+    colors = hsv(np.linspace(0, 1, deq.maxlen))[..., :3]
+
+    print("DEQUE: {}".format(deq))
+
+    i=0
+    for bboxes in reversed(deq):
+        for box in bboxes.getBoundingBoxes():
+            add_bb_into_image(image, box, 255*colors[i], label=box.getClassId())
+
+        i += 1
+    cv.imwrite(save_path, image)
 
 
 def draw_boxes_folder(images_path, annotations_path, save_path):
@@ -938,7 +953,7 @@ def save_images_from_video(path_to_video, save_dir, nb_iter=100):
         i += 1
 
 
-def filter_detections(video_path, video_param, save_dir, yolo_param, k=8):
+def filter_detections(video_path, video_param, save_dir, yolo_param, k=5):
     image_dir = os.path.join(save_dir, "images")
     annot_dir = os.path.join(save_dir, "annotations")
     draw_dir  = os.path.join(save_dir, "draw")
@@ -956,7 +971,6 @@ def filter_detections(video_path, video_param, save_dir, yolo_param, k=8):
         ratio=video_param["ratio"])
 
     boxes = deque(maxlen=k)
-
     _, first_image = next(images)
 
     image_name = os.path.join(image_dir, "im_0.jpg")
@@ -970,19 +984,17 @@ def filter_detections(video_path, video_param, save_dir, yolo_param, k=8):
         showImage=False)
 
     bboxes = yolo_det_to_bboxes("im_0.jpg", detections)
-    save_bboxes_to_txt(bboxes, annot_dir)
+    bboxes.keepOnlyName("leek")
     boxes.append(bboxes)
-
-    draw_boxes_bboxes(first_image, bboxes, draw_dir)
+    save_bboxes_to_txt(bboxes, annot_dir)
+    draw_deque_boxes(first_image, boxes, os.path.join(draw_dir, "im_0.jpg"))
 
     first_image = convert_to_grayscale(first_image)
-
     prev_opt_flow = np.zeros_like(first_image)
+    file_nb = 1
 
-    i = 1
     for _, image in images:
         second_image = convert_to_grayscale(image)
-        image_name = os.path.join(image_dir, "im_{}.jpg".format(i))
 
         optical_flow = cv.calcOpticalFlowFarneback(
             prev=first_image,
@@ -1002,8 +1014,7 @@ def filter_detections(video_path, video_param, save_dir, yolo_param, k=8):
         mean_dx = dx.sum() / dx.size
         mean_dy = dy.sum() / dy.size
 
-        print("Mean dx: {:.6}  Mean dy: {:.6}".format(mean_dx, mean_dy))
-
+        image_name = os.path.join(image_dir, "im_{}.jpg".format(file_nb))
         cv.imwrite(image_name, image, [int(cv.IMWRITE_JPEG_QUALITY), 100])
 
         detections = performDetect(
@@ -1013,25 +1024,34 @@ def filter_detections(video_path, video_param, save_dir, yolo_param, k=8):
             metaPath=yolo_param["obj"],
             showImage=False)
 
-        bboxes = yolo_det_to_bboxes("im_{}.jpg".format(i), detections)
+        bboxes = yolo_det_to_bboxes("im_{}.jpg".format(file_nb), detections)
+        bboxes.keepOnlyName("leek")
+
+        # Print stuff
+        print(image_name)
+        print("  Mean dx: {:.6}  Mean dy: {:.6}".format(mean_dx, mean_dy))
+        print("  Detection Count: {}".format(len(bboxes.getBoundingBoxes())))
 
         [item.shiftBoundingBoxesBy(mean_dx, mean_dy) for item in boxes]
         boxes.append(bboxes)
 
+        # Flatten
         boxes_to_save = []
         [boxes_to_save.extend(item.getBoundingBoxes()) for item in boxes]
-        boxes_to_save = [box for box in boxes_to_save if box.getClassId() == "leek"]
-        [box.setImageName("im_{}.jpg".format(i)) for box in boxes_to_save]
+        [box.setImageName("im_{}.jpg".format(file_nb)) for box in boxes_to_save]
         boxes_to_save = BoundingBoxes(boxes_to_save)
 
-        boxes_to_keep = nms(boxes_to_save)
-
-        save_bboxes_to_txt(boxes_to_keep, annot_dir)
-        draw_boxes_bboxes(image, boxes_to_keep, draw_dir)
+        # NMS stuff and draw
+        boxes_to_save = nms(boxes_to_save)
+        draw_deq = deque(maxlen=1)
+        draw_deq.append(boxes_to_save)
+        draw_deque_boxes(image, draw_deq, os.path.join(draw_dir, "im_{}.jpg".format(file_nb)))
+        save_bboxes_to_txt(boxes_to_save, annot_dir)
 
         first_image = second_image
         prev_opt_flow = optical_flow
-        i += 1
+        file_nb += 1
+        print()
 
 
 def filter_detections_2(folder, save_dir, model_param, k=5):
