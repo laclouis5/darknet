@@ -1052,6 +1052,69 @@ def filter_detections(video_path, video_param, save_dir, yolo_param, k=5):
         print()
 
 
+def filter_detections_2(folder, save_dir, model_param, k=5):
+    image_dir = os.path.join(save_dir, "images")
+    annot_dir = os.path.join(save_dir, "annotations")
+    draw_dir  = os.path.join(save_dir, "draw")
+
+    create_dir(save_dir)
+    create_dir(image_dir)
+    create_dir(annot_dir)
+    create_dir(draw_dir)
+
+    boxes = deque(maxlen=k)
+
+    # Read data file
+    lines = []
+    with open(os.path.join(folder, "data.txt"), "r") as f_read:
+        line = f_read.readline()
+        while line:
+            lines.append(line.split())
+            line = f_read.readline()
+
+    # Manage first image
+    image = line[0]
+
+    detections = performDetect(
+        image,
+        configPath=model_param["cfg"],
+        weightPath=model_param["model"],
+        metaPath=model_param["obj"],
+        showImage=False)
+
+    bboxes = yolo_det_to_bboxes("im_0.jpg", detections)
+    save_bboxes_to_txt(bboxes, annot_dir)
+    boxes.append(bboxes)
+    draw_boxes_bboxes(first_image, bboxes, draw_dir)
+
+    # Process rest of file
+    i = 1
+    for line in lines[1:]:
+        (image, dx, dy, t) = line[0], line[1], line[2], line[3]
+
+        detections = performDetect(
+            image,
+            configPath=model_param["cfg"],
+            weightPath=model_param["model"],
+            metaPath=model_param["obj"],
+            showImage=False)
+
+        bboxes = yolo_det_to_bboxes("im_{}.jpg".format(i), detections)
+        [item.shiftBoundingBoxesBy(dx, dy) for item in boxes]
+        boxes.append(bboxes)
+
+        boxes_to_save = []
+        [boxes_to_save.extend(item.getBoundingBoxes()) for item in boxes]
+        boxes_to_save = [box for box in boxes_to_save if box.getClassId() == "bean"]
+        [box.setImageName("im_{}.jpg".format(i)) for box in boxes_to_save]
+        boxes_to_save = BoundingBoxes(boxes_to_save)
+
+        boxes_to_keep = nms(boxes_to_save)
+
+        save_bboxes_to_txt(boxes_to_keep, annot_dir)
+        draw_boxes_bboxes(image, boxes_to_keep, draw_dir)
+
+
 if __name__ == "__main__":
     image_path  = "data/val/"
     model_path  = "results/yolo_v3_tiny_pan3_1/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou_best.weights"
@@ -1087,7 +1150,8 @@ if __name__ == "__main__":
     save_path  = os.path.join(save_dir, "save_dir")
     annot_path = os.path.join(save_dir, "result")
 
-    filter_detections(video_path, video_param, save_path, yolo_param, k=6)
+    # filter_detections(video_path, video_param, save_path, yolo_param, k=5)
+    filter_detections_2("/Volumes/KINGSTON/Bipbip_sept19/sm0128_1704")
 
     # save_detect_to_txt(image_path, save_dir, model_path, config_file, meta_path)
     # convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
