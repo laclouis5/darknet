@@ -244,7 +244,7 @@ def save_yolo_detect_to_txt(yolo_detections, save_name):
         f.writelines(lines)
 
 
-def nms(bboxes, conf_thresh=0.25, nms_thresh=0.4):
+def nms(bboxes, conf_thresh=0.25, nms_thresh=0.1):
     labels = bboxes.getClasses()
     filtered_boxes = []
 
