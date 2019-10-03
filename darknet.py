@@ -46,7 +46,7 @@ from skimage import io, filters, morphology
 from joblib import Parallel, delayed
 
 from lxml.etree import Element, SubElement, tostring, parse
-from test import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir
+from test import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder
 
 from utils import *
 from BoundingBox import BoundingBox
@@ -1117,6 +1117,7 @@ def filter_detections_2(folder, save_dir, model_param, k=5):
 
 if __name__ == "__main__":
     image_path  = "data/val/"
+    train_path  = "data/train/"
     model_path  = "results/yolo_v3_tiny_pan3_1/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou_best.weights"
     config_file = "results/yolo_v3_tiny_pan3_1/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou.cfg"
     meta_path   = "results/yolo_v3_tiny_pan3_1/obj.data"
@@ -1134,8 +1135,25 @@ if __name__ == "__main__":
 
     plant_to_keep = []
 
+    anno_files_valid = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == ".txt"]
+
+    for file in anno_files_valid:
+        with open(file, "r") as f_read:
+            content = f_read.readlines()
+
+        content = [c.strip().split() for c in content]
+        content = [line for line in content if (line[0] == "0" or line[0] == "3")]
+
+        with open(file, "w") as f_write:
+            for line in content:
+                if line[0] == "0":
+                    f_write.write("0 {} {} {} {}\n".format(line[1], line[2], line[3], line[4]))
+                if line[0] == "3":
+                    f_write.write("1 {} {} {} {}\n".format(line[1], line[2], line[3], line[4]))
+
+
     # Create a list of image names to process
-    images = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == ".jpg"]
+    # images = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == ".jpg"]
 
     # compute_mean_average_precision(
     #     folder=image_path,
@@ -1146,12 +1164,12 @@ if __name__ == "__main__":
     # save_images_from_video(video_path, os.path.join(save_dir, "images_from_video/"), nb_iter=100)
     # save_detect_to_txt(os.path.join(save_dir, "images_from_video/"), save_dir+'result/', model_path, config_file, meta_path)
     # draw_boxes_folder(os.path.join(save_dir, "images_from_video"), os.path.join(save_dir, "result/"), save_path=save_dir)
-    image_vid  = os.path.join(save_dir, "images_from_video")
-    save_path  = os.path.join(save_dir, "save_dir")
-    annot_path = os.path.join(save_dir, "result")
+    # image_vid  = os.path.join(save_dir, "images_from_video")
+    # save_path  = os.path.join(save_dir, "save_dir")
+    # annot_path = os.path.join(save_dir, "result")
 
     # filter_detections(video_path, video_param, save_path, yolo_param, k=5)
-    filter_detections_2("/Volumes/KINGSTON/Bipbip_sept19/sm0128_1704")
+    # filter_detections_2("/Volumes/KINGSTON/Bipbip_sept19/sm0128_1704")
 
     # save_detect_to_txt(image_path, save_dir, model_path, config_file, meta_path)
     # convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
