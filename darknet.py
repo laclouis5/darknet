@@ -1135,21 +1135,34 @@ if __name__ == "__main__":
 
     plant_to_keep = []
 
-    anno_files_valid = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == ".txt"]
+    anno_files_valid = [os.path.join(train_path, item) for item in os.listdir(train_path) if os.path.splitext(item)[1] == ".txt"]
 
+    new_lines = []
     for file in anno_files_valid:
         with open(file, "r") as f_read:
             content = f_read.readlines()
+            if content != []:
+                new_lines.append(os.path.basename(file))
 
-        content = [c.strip().split() for c in content]
-        content = [line for line in content if (line[0] == "0" or line[0] == "3")]
+    print(new_lines)
+    with open("train.txt", "w") as f_write:
+        for line in new_lines:
+            line = os.path.splitext(line)[0] + ".jpg"
+            f_write.write("data/train/" + line + "\n")
 
-        with open(file, "w") as f_write:
-            for line in content:
-                if line[0] == "0":
-                    f_write.write("0 {} {} {} {}\n".format(line[1], line[2], line[3], line[4]))
-                if line[0] == "3":
-                    f_write.write("1 {} {} {} {}\n".format(line[1], line[2], line[3], line[4]))
+    # for file in anno_files_valid:
+    #     with open(file, "r") as f_read:
+    #         content = f_read.readlines()
+    #
+    #     content = [c.strip().split() for c in content]
+    #     content = [line for line in content if (line[0] == "0" or line[0] == "3")]
+    #
+    #     with open(file, "w") as f_write:
+    #         for line in content:
+    #             if line[0] == "0":
+    #                 f_write.write("0 {} {} {} {}\n".format(line[1], line[2], line[3], line[4]))
+    #             if line[0] == "3":
+    #                 f_write.write("1 {} {} {} {}\n".format(line[1], line[2], line[3], line[4]))
 
 
     # Create a list of image names to process
