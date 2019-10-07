@@ -11,7 +11,7 @@ import argparse
 import glob
 
 from darknet import performDetect, convertBack
-from my_xml_toolbox import XMLTree, XMLTree2
+from my_xml_toolbox import XMLTree
 from test import egi_mask, cv_egi_mask, create_dir
 
 def create_operose_result(args):
@@ -47,7 +47,7 @@ def create_operose_result(args):
         showImage=False)
 
     # XML tree init
-    xml_tree = XMLTree2(
+    xml_tree = XMLTree(
         image_name=img_name,
         width=w,
         height=h)

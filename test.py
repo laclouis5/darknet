@@ -1,3 +1,5 @@
+# Created by Louis LAC 2019
+
 from skimage import io, data, filters, feature, color, exposure, morphology
 import numpy as np
 import matplotlib.pyplot as plt
@@ -12,24 +14,11 @@ from BoundingBoxes import BoundingBoxes
 from utils import *
 from PIL import Image
 
-
-# def egi_mask(image, thresh=1.15):
-#     image_np = np.array(image).astype(float)
-#
-#     image_np = 2*image_np[:, :, 1] / (image_np[:, :, 0] + image_np[:, :, 2] + 0.001)
-#     image_gf = filters.gaussian(image_np, sigma=1, mode='reflect')
-#
-#     image_bin = image_gf > 1.15
-#
-#     image_morph = morphology.binary_erosion(image_bin, morphology.disk(3))
-#     image_morph = morphology.binary_dilation(image_morph, morphology.disk(3))
-#
-#     image_out = morphology.remove_small_objects(image_morph, 400)
-#     image_out = morphology.remove_small_holes(image_out, 800)
-#
-#     return image_out
-
 def egi_mask(image, thresh=40):
+    '''
+    Takes as input a numpy array describing an image and return a
+    binary mask thresholded over the Excess Green Index.
+    '''
     image_np  = np.array(image).astype(np.float)
     image_egi = 2 * image_np[:, :, 1] - image_np[:, :, 0] - image_np[:, :, 2]
     image_gf  = filters.gaussian(image_egi, sigma=1, mode='reflect')
@@ -41,6 +30,10 @@ def egi_mask(image, thresh=40):
 
 
 def cv_egi_mask(image, thresh=40):
+    '''
+    Takes as input a numpy array describing an image and return a
+    binary mask thresholded over the Excess Green Index. OpenCV implementaition.
+    '''
     image_np = np.array(image).astype(np.float32)
     image_np = 2 * image_np[:, :, 1] - image_np[:, :, 0] - image_np[:, :, 2]
 
@@ -65,83 +58,20 @@ def cv_egi_mask(image, thresh=40):
     return image_morph
 
 
-def scatter3d(image, egi_mask):
-    x_rand = np.random.randint(0, 2448, 4000)
-    y_rand = np.random.randint(0, 2048, 4000)
-
-    list   = []
-    colors = []
-    for x, y in zip(x_rand, y_rand):
-        list.append(image[y, x, :])
-        if egi_mask[y, x]:
-            colors.append('g')
-        else:
-            colors.append('k')
-
-    r, g, b = zip(*list)
-
-    # HSV
-    image_2 = color.rgb2hsv(image)
-
-    list_2   = []
-    for x, y in zip(x_rand, y_rand):
-        list_2.append(image_2[y, x, :])
-
-    h, s, v = zip(*list_2)
-
-    fig = plt.figure()
-    ax = fig.add_subplot(1, 1, 1)
-    ax = fig.gca(projection='3d')
-
-    ax.scatter(r, g, b, c=colors)
-    ax.set_xlabel("Red")
-    ax.set_ylabel("Green")
-    ax.set_zlabel("Blue")
-    plt.show()
-
-    # ax.scatter(h, s, v, c=colors)
-    # ax.set_xlabel("H")
-    # ax.set_ylabel("S")
-    # ax.set_zlabel("V")
-    # plt.show()
-
-def compute_struct_tensor(image_path, w, sigma=1.5):
-        img = cv.imread(image_path, cv.IMREAD_GRAYSCALE)
-        img = img.astype(np.float32)
-
-        border_type = cv.BORDER_REFLECT
-
-        # Gradients
-        Gx = cv.Sobel(img, cv.CV_32F, 1, 0, 3, borderType=border_type)
-        Gy = cv.Sobel(img, cv.CV_32F, 0, 1, 3, borderType=border_type)
-
-        # Filtered Structure Tensor Components
-        Axx = cv.GaussianBlur(Gx * Gx, ksize=(0, 0), sigmaX=sigma, sigmaY=sigma, borderType=border_type)
-        Ayy = cv.GaussianBlur(Gy * Gy, ksize=(0, 0), sigmaX=sigma, sigmaY=sigma, borderType=border_type)
-        Axy = cv.GaussianBlur(Gx * Gy, ksize=(0, 0), sigmaX=sigma, sigmaY=sigma, borderType=border_type)
-
-        # Eigenvalues
-        tmp1 = Axx + Ayy
-        tmp2 = (Axx - Ayy) * (Axx - Ayy)
-        tmp3 = Axy * Axy
-        tmp4 = cv.sqrt(tmp2 + 4.0 * tmp3)
-
-        lambda1 = tmp1 + tmp4
-        lambda2 = tmp1 - tmp4
-
-        # Coherency and Orientation
-        img_coherency = (lambda1 - lambda2) / (lambda1 + lambda2)
-        img_orientation = 0.5 * cv.phase(Axx - Ayy, 2.0 * Axy, angleInDegrees=True)
-
-        return img_coherency, img_orientation
-
-
 def create_dir(directory):
+    '''
+    Creates the spedified directory if doesn't exist.
+    '''
     if not os.path.isdir(directory):
         os.mkdir(directory)
 
 
 def yolo_det_to_bboxes(image_name, yolo_detections):
+    '''
+    Takes as input a list of tuples (label, conf, x, w, w, h) predicted by
+    yolo framework and returns a boundingBoxes object representing the boxes.
+    image_name is required.
+    '''
     bboxes = []
 
     for detection in yolo_detections:
@@ -158,6 +88,10 @@ def yolo_det_to_bboxes(image_name, yolo_detections):
 
 
 def save_bboxes_to_txt(bounding_boxes, save_dir):
+    '''
+    Saves boxes wrapped in a boundingBoxes object to a yolo annotation file in
+    the specified save_dir directory. Format is XYX2Y2 abs (hard coded).
+    '''
     # Saves all detections in a BBoxes object as txt file
     names = bounding_boxes.getNames()
 
@@ -180,6 +114,11 @@ def save_bboxes_to_txt(bounding_boxes, save_dir):
 
 
 def read_detection_txt_file(file_path, img_size):
+    '''
+    Takes a detection file and its correponding image size and returns
+    a boundingBoxes object representing boxes. Detection file is XYX2Y2 abs
+    (hard coded).
+    '''
     bounding_boxes = BoundingBoxes(bounding_boxes=[])
     image_name = os.path.basename(os.path.splitext(file_path)[0] + '.jpg')
 
@@ -195,6 +134,11 @@ def read_detection_txt_file(file_path, img_size):
 
 
 def read_gt_annotation_file(file_path, img_size):
+    '''
+    Takes a yolo GT file and its correponding image size and returns
+    a boundingBoxes object representing boxes. Yolo format is XYWH relative,
+    image_size must be provided.
+    '''
     bounding_boxes = BoundingBoxes(bounding_boxes=[])
     image_name = os.path.basename(os.path.splitext(file_path)[0] + '.jpg')
 
@@ -210,6 +154,10 @@ def read_gt_annotation_file(file_path, img_size):
 
 
 def parse_yolo_folder(data_dir):
+    '''
+    Parsed a folder containing yolo GT annotations and their corresponding
+    images with the same name. Returns a boundingBoxes object.
+    '''
     annotations = [os.path.join(data_dir, item) for item in os.listdir(data_dir) if os.path.splitext(item)[1] == '.txt']
     images = [os.path.splitext(item)[0] + '.jpg' for item in annotations]
     bounding_boxes = BoundingBoxes(bounding_boxes=[])
@@ -223,6 +171,9 @@ def parse_yolo_folder(data_dir):
 
 
 def xywh_to_xyx2y2(x, y, w, h):
+    '''
+    Takes as input absolute coords and returns integers.
+    '''
     xmin = int(round(x - (w / 2)))
     xmax = int(round(x + (w / 2)))
     ymin = int(round(y - (h / 2)))
@@ -230,7 +181,19 @@ def xywh_to_xyx2y2(x, y, w, h):
     return xmin, ymin, xmax, ymax
 
 
+def xyx2y2_to_xywh(xmin, ymin, xmax, ymax):
+    x = (xmax + xmin)/2.0
+    y = (ymax + ymin)/2.0
+    w = xmax - xmin
+    h = ymax - ymin
+    return x, y, w, h
+
+
 def save_yolo_detect_to_txt(yolo_detections, save_name):
+    """
+    Takes a list of yolo detections (tuples returned by the framework) and
+    saved those detections in XYX2Y2 abs format in save_name file.
+    """
     lines = []
 
     for detection in yolo_detections:
@@ -244,6 +207,12 @@ def save_yolo_detect_to_txt(yolo_detections, save_name):
 
 
 def nms(bboxes, conf_thresh=0.25, nms_thresh=0.1):
+    """
+    Wrapper for OpenCV NMS.
+    Takes as input a boundingBoxes object containg ONLY boxes for one images
+    and returns filtered boxes.
+    This function is not finished.
+    """
     labels = bboxes.getClasses()
     filtered_boxes = []
 
@@ -263,32 +232,126 @@ def nms(bboxes, conf_thresh=0.25, nms_thresh=0.1):
 
     return BoundingBoxes(bounding_boxes=filtered_boxes)
 
-# image = cv.imread('data/val/im_335.jpg')
-# out = egi_mask_2(image)
-# plt.imshow(out)
-# plt.show()
 
-# image = io.imread("data/carotte.jpg")
-# mask = egi_mask(image)
-# image_green = image.copy()
-# image_green[mask==0] = 0
-# # plt.subplot(221)
-# # plt.imshow(image)
-# # plt.subplot(222)
-# # plt.imshow(mask)
-# # plt.subplot(223)
-# # plt.imshow(image_green)
-# # plt.show()
-#
-# # scatter3d(image, mask)
-# #structure_tensor(image)
-#
-# coherence, orientation = compute_struct_tensor("data/im_33.jpg", 32, 10)
-#
-# plt.subplot(121)
-# plt.title("Coherence")
-# plt.imshow(coherence)
-# plt.subplot(122)
-# plt.title("Orientation")
-# plt.imshow(orientation)
-# plt.show()
+def crop_annotation_to_square(annot_folder, save_dir, lab_to_name):
+    annotations = [os.path.join(annot_folder, item) for item in os.listdir(annot_folder) if os.path.splitext(item)[1] == '.txt']
+
+    for annotation in annotations:
+        content_out = []
+        corresp_img = os.path.splitext(annotation)[0] + '.jpg'
+        (img_w, img_h) = Image.open(corresp_img).size
+
+        print("In landscape mode: {} by {}".format(img_w, img_h))
+        # Here are abs coords of square bounds (left and right)
+        (w_lim_1, w_lim_2) = round(float(img_w)/2 - float(img_h)/2), round(float(img_w)/2 + float(img_h)/2)
+
+        with open(annotation, 'r') as f:
+            print("Reading annotation...")
+            content = f.readlines()
+            content = [line.strip() for line in content]
+
+            for line in content:
+                print("Reading a line...")
+                line = line.split()
+                # Get relative coords (in old coords system)
+                (label, x, y, w, h) = int(line[0]), float(line[1]), float(line[2]), float(line[3]), float(line[4])
+                print("Line is: {} {} {} {} {}".format(label, x, y, w, h))
+
+                # If bbox is not out of the new square frame
+                if not (x*img_w < w_lim_1 or x*img_w > w_lim_2):
+                    print("In square bounds")
+                    # But if bbox spans out of one bound (l or r)
+                    if (x - w/2.0) < (float(w_lim_1)/img_w):
+                        print("Spans out of left bound")
+                        # Then adjust bbox to fit in the square
+                        w = w - (float(w_lim_1)/img_w - (x - w/2.0))
+                        x = float(w_lim_1+1)/img_w + w/2.0
+                    if (x + w/2.0) > (float(w_lim_2)/img_w):
+                        print("Span out of right bound")
+                        w = w - (x + w/2.0 - float(w_lim_2)/img_w)
+                        x = float(w_lim_2)/img_w - w/2.0
+                    else:
+                        print("Does not spans outside")
+
+                # If out of bounds...
+                else:
+                    print("Out of square bounds")
+                    # ...do not process the line
+                    continue
+
+                # Do not forget to convert from old coord sys to new one
+                x = (x*img_w - float(w_lim_1))/float(w_lim_2 - w_lim_1)
+                w = w*img_w/float(w_lim_2 - w_lim_1)
+
+                assert x >= 0, "Value was {}".format(x)
+                assert x <= 1, "Value was {}".format(x)
+                assert (x - w/2) >= 0, "Value was {}".format(x - w/2)
+                assert (x + w/2) <= 1, "Value was {}".format(x + w/2)
+
+                size = min(img_w, img_h)
+
+                (xmin, ymin, xmax, ymax) = xywh_to_xyx2y2(x*size, y*size, w*size, h*size)
+
+                new_line = "{} {} {} {} {}\n".format(lab_to_name[label], xmin, ymin, xmax, ymax)
+                content_out.append(new_line)
+
+        # Write updated content to TXt file
+        with open(os.path.join(save_dir, os.path.basename(annotation)), 'w') as f:
+            f.writelines(content_out)
+
+
+def crop_detection_to_square(image_path, save_dir, model, config_file, meta_file):
+    images = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == '.jpg']
+    images.sort()
+
+    for image in images:
+        content_out = []
+        (img_w, img_h) = Image.open(image).size
+        (w_lim_1, w_lim_2) = round(float(img_w)/2 - float(img_h)/2), round(float(img_w)/2 + float(img_h)/2)
+
+        detections = performDetect(
+            imagePath=image,
+            configPath=config_file,
+            weightPath=model,
+            metaPath=meta_file,
+            showImage=False)
+
+        for detection in detections:
+            label = detection[0]
+            prob = detection[1]
+            (x, y, w, h) = detection[2]
+            (x, y, w, h) = (x/img_w, y/img_h, w/img_w, h/img_h)
+
+            # If bbox is not out of the new square frame
+            if not (x*img_w < w_lim_1 or x*img_w > w_lim_2):
+                # But if bbox spans out of one bound (l or r)
+                if (x - w/2.0) < (float(w_lim_1)/img_w):
+                    # Then adjust bbox to fit in the square
+                    w = w - (float(w_lim_1)/img_w - (x - w/2.0))
+                    x = float(w_lim_1+1)/img_w + w/2.0
+                if (x + w/2.0) > (float(w_lim_2)/img_w):
+                    w = w - (x + w/2.0 - float(w_lim_2)/img_w)
+                    x = float(w_lim_2)/img_w - w/2.0
+
+            else: continue
+
+            # Do not forget to convert from old coord sys to new one
+            x = (x*img_w - float(w_lim_1))/float(w_lim_2 - w_lim_1)
+            w = w*img_w/float(w_lim_2 - w_lim_1)
+
+            assert x >= 0, "Value was {}".format(x)
+            assert x <= 1, "Value was {}".format(x)
+            assert (x - w/2) >= 0, "Value was {}".format(x - w/2)
+            assert (x + w/2) <= 1, "Value was {}".format(x + w/2)
+
+            size = min(img_w, img_h)
+
+            (xmin, ymin, xmax, ymax) = xywh_to_xyx2y2(x*size, y*size, w*size, h*size)
+
+            new_line = "{} {} {} {} {} {}\n".format(label, prob, xmin, ymin, xmax, ymax)
+            content_out.append(new_line)
+
+        # Write updated content to TXT file
+        save_name = os.path.splitext(os.path.basename(image))[0] + '.txt'
+        with open(os.path.join(save_dir, save_name), 'w') as f:
+            f.writelines(content_out)

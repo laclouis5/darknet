@@ -45,8 +45,7 @@ from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
 
-from lxml.etree import Element, SubElement, tostring, parse
-from test import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder
+from test import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2
 
 from utils import *
 from BoundingBox import BoundingBox
@@ -91,174 +90,6 @@ class IMAGE(Structure):
 class METADATA(Structure):
     _fields_ = [("classes", c_int),
                 ("names", POINTER(c_char_p))]
-
-
-class XMLTree:
-    def __init__(self, image_name, width, height, user_name='Unknown user', date=str(datetime.date.today())):
-        """
-        Creates a ElementTree containing results of classification.
-
-        Arguments:
-        image_name -- String containing the name of the source image used for classification.
-        width      -- Image width (integer).
-        height     -- Image height (integer).
-        user_name  -- String containing the name of the participant.
-        date       -- String containing the result production date (YYYY-DD-MM).
-
-        Returns:
-        A ElementTree Element
-
-        For additional information about format please refer to 'PE_ROSE_dryrn.pdf'
-        """
-
-        # Root node
-        self.tree = Element('GEDI')
-
-        # First level nodes
-        document = SubElement(self.tree, 'DL_DOCUMENT')
-        user = SubElement(self.tree, 'USER')
-
-        # Second level nodes
-        src = SubElement(document, 'SRC')
-        tag = SubElement(document, 'DOC_TAG')
-        w = SubElement(document, 'WIDTH')
-        h = SubElement(document, 'HEIGHT')
-
-        _name = SubElement(user, 'NAME')
-        _date = SubElement(user, 'DATE')
-
-        # Fill info
-        src.text = image_name
-        tag.text = 'xml'
-        w.text = str(width)
-        h.text = str(height)
-
-        _name.text = user_name
-        _date.text = date
-
-
-    def add_mask_zone(self, plant_type, bbox, name=''):
-        """
-        Creates new mask zones in the input tree.
-
-        Arguments:
-        tree       -- The ElementTree to be filled with mask info.
-        plant_type -- String containing the type of plant (either 'Adventice' or 'PlanteInteret')
-        name       -- String (optional), plant name.
-        """
-        # Go to 'DL_DOCUMENT' node & retreive mask ID
-        doc_node = self.tree.find('DL_DOCUMENT')
-        nb_masks = self.get_next_mask_id()
-
-        # Create new mask
-        mask = Element('MASK_ZONE')
-        _id = SubElement(mask, 'ID')
-        _type = SubElement(mask, 'TYPE')
-        _name = SubElement(mask, 'NAME')
-        _bndbox = SubElement(mask, 'BNDBOX')
-
-        _xmin = SubElement(_bndbox, 'XMIN')
-        _ymin = SubElement(_bndbox, 'YMIN')
-        _xmax = SubElement(_bndbox, 'XMAX')
-        _ymax = SubElement(_bndbox, 'YMAX')
-
-        # Fill info & append
-        _id.text = str(nb_masks)
-        _type.text = plant_type
-        _name.text = name
-
-        _xmin.text = str(bbox[0])
-        _ymin.text = str(bbox[1])
-        _xmax.text = str(bbox[2])
-        _ymax.text = str(bbox[3])
-
-        doc_node.append(mask)
-
-
-    def get_next_mask_id(self):
-        """
-        Return the next unique ID for masks.
-        """
-
-        # Go to 'DL_DOCUMENT' node
-        doc_node = self.tree.find('DL_DOCUMENT')
-
-        # Compute new mask index
-        masks_list = doc_node.findall('MASK_ZONE')
-        return len(masks_list)
-
-
-    def get_current_mask_id(self):
-        return self.get_next_mask_id() - 1
-
-
-    def save(self, xml_file_name):
-        """
-        Saves to disk the tree to XML file.
-
-        Arguments:
-        tree -- The ElementTree Element to save.
-        xml_file_name -- String containing the name of the XML file. See 'PE_ROSE_dryrn.pdf' for more information.
-        """
-
-        # TreeElement to string representation
-        tree_str = tostring(self.tree, encoding='unicode', pretty_print=True)
-
-        # Write data
-        with open(xml_file_name, 'w') as xml_file:
-            xml_file.write(tree_str)
-
-
-    def clean_xml(folders):
-        for folder in folders:
-            for file in os.listdir(folder):
-
-                if(os.path.splitext(file)[1] != '.xml'):
-                    continue
-
-                tree = parse(os.path.join(folder, file)).getroot()
-
-                path_field = tree.find('path')
-                path_field.text = os.path.join(folder, file)
-
-                with open(os.path.join(folder, file), 'w') as xml_file:
-                    tree_str = tostring(tree, encoding='unicode', pretty_print=True)
-                    xml_file.write(tree_str)
-
-
-    def xlm_to_csv(folders, classes_to_keep=[], cvs_path=''):
-        with open(os.path.join(csv_path, 'train_data.csv'), 'w') as csv_file:
-            for folder in folders:
-                for file in sorted(os.listdir(folder)):
-                    # Check if XML file
-                    if(os.path.splitext(file)[1] != '.xml'):
-                        continue
-                    # Retreive the XML etree
-                    root = parse(os.path.join(folder, file)).getroot()
-
-                    file_name = root.find('filename').text
-
-                    # Retreive and process each 'object' in the etree
-                    for obj in root.findall('object'):
-                        name = obj.find('name').text
-
-                        # Save only selected classes
-                        # Comment to ignore class selection
-                        if (classes_to_keep.count != 0) and (name not in classes_to_keep):
-                            continue
-
-                        # Retreive bounding box coordinates
-                        bounding_box = obj.find('bndbox')
-                        coords = []
-
-                        for coord in bounding_box.getchildren():
-                            coords.append(int(coord.text))
-
-                        # Write CSV file
-                        csv_file.write(os.path.join(folder, file_name) + ',')
-                        for coord in coords:
-                            csv_file.write(str(coord) + ',')
-                        csv_file.write(name + '\n')
 
 
 #lib = CDLL("/home/pjreddie/documents/darknet/libdarknet.so", RTLD_GLOBAL)
@@ -675,6 +506,10 @@ def convertBack(x, y, w, h):
 
 
 def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file):
+    """
+    Perform detection on images in folder_path with the specified yolo
+    model and saves detections in yolo format in save_dir folder.
+    """
     img_gen = ImageGeneratorFromFolder(folder_path)
     create_dir(save_dir)
 
@@ -690,7 +525,7 @@ def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file):
         for detection in detections:
             box = detection[2]
             label = detection[0]
-            # (xmin, ymin, xmax, ymax) = convertBack(box[0], box[1], box[2], box[3])
+            # XYWH relative
             (x, y, w, h) = box[0]/width, box[1]/height, box[2]/width, box[3]/height
             confidence = detection[1]
             lines.append("{} {} {} {} {} {}\n".format(map_labels[label], confidence, x, y, w, h))
@@ -700,6 +535,11 @@ def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file):
 
 
 def convert_yolo_annot_to_XYX2Y2(annotation_dir, save_dir, lab_to_name):
+    """
+    Convert annotation files of the specified directory in XYX2Y2 abs format and
+    save new files to save_dir. lab_to_name is a dictionnary that allows
+    remapping of labels.
+    """
     annotations = [os.path.join(annotation_dir, item) for item in os.listdir(annotation_dir) if os.path.splitext(item)[1] == '.txt']
     images = [os.path.splitext(item)[0] + '.jpg' for item in annotations]
 
@@ -717,137 +557,16 @@ def convert_yolo_annot_to_XYX2Y2(annotation_dir, save_dir, lab_to_name):
             for line in content:
                 line = line.split(' ')
                 (label, x, y, w, h) = int(line[0]), float(line[1]), float(line[2]), float(line[3]), float(line[4])
-                # print('Line:       {} {:.4} {:.4} {:.4} {:.4}'.format(int(line[0]), float(line[1]), float(line[2]), float(line[3]), float(line[4])))
-                (xmin, ymin, xmax, ymax) = convertBack(x*img_w, y*img_h, w*img_w, h*img_h)
+                # XYX2Y2 absolute
+                (xmin, ymin, xmax, ymax) = xywh_to_xyx2y2(x*img_w, y*img_h, w*img_w, h*img_h)
                 fw.write('{} {} {} {} {}\n'.format(lab_to_name[label], xmin, ymin, xmax, ymax))
-                # fw.write('{} {} {} {} {}\n'.format(lab_to_name[label], x*img_w, y*img_h, w*img_w, h*img_h))
-
-
-def crop_annotation_to_square(annot_folder, save_dir, lab_to_name):
-    annotations = [os.path.join(annot_folder, item) for item in os.listdir(annot_folder) if os.path.splitext(item)[1] == '.txt']
-
-    for annotation in annotations:
-        content_out = []
-        corresp_img = os.path.splitext(annotation)[0] + '.jpg'
-        (img_w, img_h) = Image.open(corresp_img).size
-
-        print("In landscape mode: {} by {}".format(img_w, img_h))
-        # Here are abs coords of square bounds (left and right)
-        (w_lim_1, w_lim_2) = round(float(img_w)/2 - float(img_h)/2), round(float(img_w)/2 + float(img_h)/2)
-
-        with open(annotation, 'r') as f:
-            print("Reading annotation...")
-            content = f.readlines()
-            content = [line.strip() for line in content]
-
-            for line in content:
-                print("Reading a line...")
-                line = line.split()
-                # Get relative coords (in old coords system)
-                (label, x, y, w, h) = int(line[0]), float(line[1]), float(line[2]), float(line[3]), float(line[4])
-                print("Line is: {} {} {} {} {}".format(label, x, y, w, h))
-
-                # If bbox is not out of the new square frame
-                if not (x*img_w < w_lim_1 or x*img_w > w_lim_2):
-                    print("In square bounds")
-                    # But if bbox spans out of one bound (l or r)
-                    if (x - w/2.0) < (float(w_lim_1)/img_w):
-                        print("Spans out of left bound")
-                        # Then adjust bbox to fit in the square
-                        w = w - (float(w_lim_1)/img_w - (x - w/2.0))
-                        x = float(w_lim_1+1)/img_w + w/2.0
-                    if (x + w/2.0) > (float(w_lim_2)/img_w):
-                        print("Span out of right bound")
-                        w = w - (x + w/2.0 - float(w_lim_2)/img_w)
-                        x = float(w_lim_2)/img_w - w/2.0
-                    else:
-                        print("Does not spans outside")
-
-                # If out of bounds...
-                else:
-                    print("Out of square bounds")
-                    # ...do not process the line
-                    continue
-
-                # Do not forget to convert from old coord sys to new one
-                x = (x*img_w - float(w_lim_1))/float(w_lim_2 - w_lim_1)
-                w = w*img_w/float(w_lim_2 - w_lim_1)
-
-                assert x >= 0, "Value was {}".format(x)
-                assert x <= 1, "Value was {}".format(x)
-                assert (x - w/2) >= 0, "Value was {}".format(x - w/2)
-                assert (x + w/2) <= 1, "Value was {}".format(x + w/2)
-
-                size = min(img_w, img_h)
-
-                (xmin, ymin, xmax, ymax) = convertBack(x*size, y*size, w*size, h*size)
-
-                new_line = "{} {} {} {} {}\n".format(lab_to_name[label], xmin, ymin, xmax, ymax)
-                content_out.append(new_line)
-
-        # Write updated content to TXt file
-        with open(os.path.join(save_dir, os.path.basename(annotation)), 'w') as f:
-            f.writelines(content_out)
-
-
-def crop_detection_to_square(image_path, save_dir, model, config_file, meta_file):
-    images = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == '.jpg']
-    images.sort()
-
-    for image in images:
-        content_out = []
-        (img_w, img_h) = Image.open(image).size
-        (w_lim_1, w_lim_2) = round(float(img_w)/2 - float(img_h)/2), round(float(img_w)/2 + float(img_h)/2)
-
-        detections = performDetect(
-            imagePath=image,
-            configPath=config_file,
-            weightPath=model,
-            metaPath=meta_file,
-            showImage=False)
-
-        for detection in detections:
-            label = detection[0]
-            prob = detection[1]
-            (x, y, w, h) = detection[2]
-            (x, y, w, h) = (x/img_w, y/img_h, w/img_w, h/img_h)
-
-            # If bbox is not out of the new square frame
-            if not (x*img_w < w_lim_1 or x*img_w > w_lim_2):
-                # But if bbox spans out of one bound (l or r)
-                if (x - w/2.0) < (float(w_lim_1)/img_w):
-                    # Then adjust bbox to fit in the square
-                    w = w - (float(w_lim_1)/img_w - (x - w/2.0))
-                    x = float(w_lim_1+1)/img_w + w/2.0
-                if (x + w/2.0) > (float(w_lim_2)/img_w):
-                    w = w - (x + w/2.0 - float(w_lim_2)/img_w)
-                    x = float(w_lim_2)/img_w - w/2.0
-
-            else: continue
-
-            # Do not forget to convert from old coord sys to new one
-            x = (x*img_w - float(w_lim_1))/float(w_lim_2 - w_lim_1)
-            w = w*img_w/float(w_lim_2 - w_lim_1)
-
-            assert x >= 0, "Value was {}".format(x)
-            assert x <= 1, "Value was {}".format(x)
-            assert (x - w/2) >= 0, "Value was {}".format(x - w/2)
-            assert (x + w/2) <= 1, "Value was {}".format(x + w/2)
-
-            size = min(img_w, img_h)
-
-            (xmin, ymin, xmax, ymax) = convertBack(x*size, y*size, w*size, h*size)
-
-            new_line = "{} {} {} {} {} {}\n".format(label, prob, xmin, ymin, xmax, ymax)
-            content_out.append(new_line)
-
-        # Write updated content to TXT file
-        save_name = os.path.splitext(os.path.basename(image))[0] + '.txt'
-        with open(os.path.join(save_dir, save_name), 'w') as f:
-            f.writelines(content_out)
 
 
 def draw_boxes(image, annotation, save_path, color=[255, 64, 0]):
+    '''
+    Takes path to one image and to one yolo-style detection file, draws
+    bounding boxes into and saves it in save_path
+    '''
     save_name        = os.path.join(save_path, os.path.basename(image))
     height, width, _ = cv.imread(image).shape
 
@@ -861,6 +580,11 @@ def draw_boxes(image, annotation, save_path, color=[255, 64, 0]):
 
 
 def draw_boxes_bboxes(image, bounding_boxes, save_dir, color=[255, 64, 0]):
+    '''
+    Takes as input one image (numpy array) and a BoundingBoxes object
+    representing the bounding boxes, draws them into and saves the image in
+    save_dir.
+    '''
     image = image.copy()
     for box in bounding_boxes.getBoundingBoxes():
         add_bb_into_image(image, box, color=color, label=box.getClassId())
@@ -870,6 +594,10 @@ def draw_boxes_bboxes(image, bounding_boxes, save_dir, color=[255, 64, 0]):
 
 
 def draw_deque_boxes(image, deq, save_path):
+    '''
+    Takes one numpy array representing the image, a deque with boundingBoxes
+    objects. Draws boxes ans save them in save_path.
+    '''
     image = image.copy()
     hsv = plt.get_cmap("cool")
     colors = hsv(np.linspace(0, 1, deq.maxlen))[..., :3]
@@ -884,6 +612,11 @@ def draw_deque_boxes(image, deq, save_path):
 
 
 def draw_boxes_folder(images_path, annotations_path, save_path):
+    '''
+    Takes path to a folder if images and a folder of corresponding annotations,
+    draws bounding boxes and save images in save_path.
+    '''
+    create_dir(save_path)
     images = ImageGeneratorFromFolder(images_path)
 
     for image in images:
@@ -894,6 +627,9 @@ def draw_boxes_folder(images_path, annotations_path, save_path):
 
 
 def ImageGeneratorFromVideo(video_path, skip_frames=1, gray_scale=True, down_scale=1, ratio=None):
+    '''
+    Takes path to a video and yield frames.
+    '''
     video = cv.VideoCapture(video_path)
     ret = True
     while ret:
@@ -917,11 +653,17 @@ def ImageGeneratorFromVideo(video_path, skip_frames=1, gray_scale=True, down_sca
 
 
 def convert_to_grayscale(image):
+    '''
+    Convert an image (numpy array) to grayscale. Needs openCV.
+    '''
     frame = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
     return frame
 
 
 def ImageGeneratorFromFolder(folder, sorted=False):
+    '''
+    Generator that yields images from a specified folder. Can be sorted.
+    '''
     files = [os.path.join(folder, item) for item in os.listdir(folder) if os.path.splitext(item)[1] == ".jpg"]
     if sorted:
         files.sort()
@@ -929,12 +671,15 @@ def ImageGeneratorFromFolder(folder, sorted=False):
         yield file
 
 
-def save_images_from_video(path_to_video, save_dir, nb_iter=100):
-    skip_frames = 2
+def save_images_from_video(path_to_video, save_dir, skip_frames = 2, nb_iter=100):
+    '''
+    Extract frames from a video and saves them to save_path. Sampling
+    frequency can be tunes as well as the number of frames to extract.
+    Ratio is 4/3.
+    '''
     video_gen = ImageGeneratorFromVideo(path_to_video, skip_frames=skip_frames, gray_scale=False)
 
-    if not os.path.isdir(save_dir):
-        os.mkdir(save_dir)
+    create_dir(save_dir)
 
     i = 0
     while i < nb_iter:
@@ -952,6 +697,9 @@ def save_images_from_video(path_to_video, save_dir, nb_iter=100):
 
 
 def filter_detections(video_path, video_param, save_dir, yolo_param, k=5):
+    '''
+    NMS filtering and drawing. For experiment purpose.
+    '''
     image_dir = os.path.join(save_dir, "images")
     annot_dir = os.path.join(save_dir, "annotations")
     draw_dir  = os.path.join(save_dir, "draw")
@@ -1053,6 +801,9 @@ def filter_detections(video_path, video_param, save_dir, yolo_param, k=5):
 
 
 def filter_detections_2(folder, save_dir, model_param, k=5):
+    '''
+    NMS filtering. For experiment purpose.
+    '''
     image_dir = os.path.join(save_dir, "images")
     annot_dir = os.path.join(save_dir, "annotations")
     draw_dir  = os.path.join(save_dir, "draw")
