@@ -1,9 +1,14 @@
+# Created by Louis LAC 2019
+
 from lxml.etree import Element, SubElement, tostring, parse
 import datetime
 import os
 
 class XMLTree:
     def __init__(self, image_name, width, height, user_name="Bipbip", date=datetime.date.today()):
+        """
+        Instantiates a XML Tree representation to hold object detection results.
+        """
         # XML Tree Structure
         self.tree = Element("GEDI")
         dl_document = SubElement(self.tree, "DL_DOCUMENT")
@@ -24,6 +29,10 @@ class XMLTree:
 
 
     def add_mask(self, name, type="PlanteInteret"):
+        """
+        Adds a detection. ID points to a PNG mask representing the detected
+        object.
+        """
         dl_document = self.tree.find("DL_DOCUMENT")
         mask = SubElement(dl_document, "MASQUE_ZONE")
         mask.attrib["id"] = str(self.plant_count)
@@ -34,6 +43,9 @@ class XMLTree:
 
 
     def save(self, save_dir=""):
+        """
+        Saves the xml file.
+        """
         string = tostring(self.tree, encoding='unicode', pretty_print=True)
         save_name = os.path.join(save_dir, self.save_name)
 

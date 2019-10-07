@@ -505,6 +505,7 @@ def convertBack(x, y, w, h):
 #         print("{} - mAP: {:.4} %, TP: {}, FP: {}, tot. pos.: {}".format(item['class'], 100*item['AP'], item["total TP"], item["total FP"], item["total positives"]))
 
 
+# Created by Louis LAC 2019
 def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file):
     """
     Perform detection on images in folder_path with the specified yolo
