@@ -233,6 +233,29 @@ def nms(bboxes, conf_thresh=0.25, nms_thresh=0.1):
     return BoundingBoxes(bounding_boxes=filtered_boxes)
 
 
+def remap_yolo_GT_file_labels(file_path, to_keep):
+    """
+    Takes path to yolo GT file, reads the file and removes lines with
+    the labels specified in the to_keep mapping list.
+    """
+    content = []
+    with open(file_path, "r") as f_read:
+        content = f_read.readlines()
+
+    content = [c.strip().split() for c in content]
+    content = [line for line in content if (line[0] in to_keep.keys())]
+
+    with open(file_path, "w") as f_write:
+        for line in content:
+            f_write.write("{} {} {} {} {}\n".format(to_keep[line[0]], line[1], line[2], line[3], line[4]))
+
+
+def remap_yolo_GT_files_labels(folder, to_keep):
+    files = [os.path.join(folder, item) for item in os.listdir(folder) if os.path.splitext(item)[1] == ".txt"]
+    for file in files:
+        remap_yolo_GT_file_labels(file, to_keep)
+
+
 def crop_annotation_to_square(annot_folder, save_dir, lab_to_name):
     annotations = [os.path.join(annot_folder, item) for item in os.listdir(annot_folder) if os.path.splitext(item)[1] == '.txt']
 

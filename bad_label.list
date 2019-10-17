@@ -1,6 +1,0 @@
-data/img/train/GOPR1243_00000073.txt Wrong annotation: class_id = 1. But class_id should be [from 0 to 0]
-data/img/train/GOPR1243_00000015.txt Wrong annotation: class_id = 1. But class_id should be [from 0 to 0]
-data/img/train/GOPR1243_00000180.txt Wrong annotation: class_id = 1. But class_id should be [from 0 to 0]
-data/train/im_57.txt Wrong annotation: class_id = 3. But class_id should be [from 0 to 1]
-data/train/im_60.txt Wrong annotation: class_id = 3. But class_id should be [from 0 to 1]
-data/train/im_154.txt Wrong annotation: class_id = 3. But class_id should be [from 0 to 1]

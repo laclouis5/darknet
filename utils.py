@@ -198,4 +198,5 @@ def getBoundingBoxes(directory,
             if idClass not in allClasses:
                 allClasses.append(idClass)
         fh1.close()
+        
     return allBoundingBoxes, allClasses
