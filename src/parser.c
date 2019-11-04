@@ -38,6 +38,7 @@
 #include "upsample_layer.h"
 #include "version.h"
 #include "yolo_layer.h"
+#include "gaussian_yolo_layer.h"
 
 typedef struct{
     char *type;
@@ -57,6 +58,7 @@ LAYER_TYPE string_to_layer_type(char * type)
     if (strcmp(type, "[detection]")==0) return DETECTION;
     if (strcmp(type, "[region]")==0) return REGION;
     if (strcmp(type, "[yolo]") == 0) return YOLO;
+    if (strcmp(type, "[Gaussian_yolo]") == 0) return GAUSSIAN_YOLO;
     if (strcmp(type, "[local]")==0) return LOCAL;
     if (strcmp(type, "[conv]")==0
             || strcmp(type, "[convolutional]")==0) return CONVOLUTIONAL;
@@ -157,9 +159,18 @@ convolutional_layer parse_convolutional(list *options, size_params params, netwo
     int n = option_find_int(options, "filters",1);
     int groups = option_find_int_quiet(options, "groups", 1);
     int size = option_find_int(options, "size",1);
-    int stride = option_find_int(options, "stride",1);
-    int stride_x = option_find_int_quiet(options, "stride_x", stride);
-    int stride_y = option_find_int_quiet(options, "stride_y", stride);
+    int stride = -1;
+    //int stride = option_find_int(options, "stride",1);
+    int stride_x = option_find_int_quiet(options, "stride_x", -1);
+    int stride_y = option_find_int_quiet(options, "stride_y", -1);
+    if (stride_x < 1 || stride_y < 1) {
+        stride = option_find_int(options, "stride", 1);
+        if (stride_x < 1) stride_x = stride;
+        if (stride_y < 1) stride_y = stride;
+    }
+    else {
+        stride = option_find_int_quiet(options, "stride", 1);
+    }
     int dilation = option_find_int_quiet(options, "dilation", 1);
     int antialiasing = option_find_int_quiet(options, "antialiasing", 0);
     if (size == 1) dilation = 1;
@@ -382,6 +393,69 @@ layer parse_yolo(list *options, size_params params)
             if (a[i] == ',') ++n;
         }
         for (i = 0; i < n && i < total*2; ++i) {
+            float bias = atof(a);
+            l.biases[i] = bias;
+            a = strchr(a, ',') + 1;
+        }
+    }
+    return l;
+}
+
+
+int *parse_gaussian_yolo_mask(char *a, int *num) // Gaussian_YOLOv3
+{
+    int *mask = 0;
+    if (a) {
+        int len = strlen(a);
+        int n = 1;
+        int i;
+        for (i = 0; i < len; ++i) {
+            if (a[i] == ',') ++n;
+        }
+        mask = (int *)calloc(n, sizeof(int));
+        for (i = 0; i < n; ++i) {
+            int val = atoi(a);
+            mask[i] = val;
+            a = strchr(a, ',') + 1;
+        }
+        *num = n;
+    }
+    return mask;
+}
+
+
+layer parse_gaussian_yolo(list *options, size_params params) // Gaussian_YOLOv3
+{
+    int classes = option_find_int(options, "classes", 20);
+    int max_boxes = option_find_int_quiet(options, "max", 90);
+    int total = option_find_int(options, "num", 1);
+    int num = total;
+
+    char *a = option_find_str(options, "mask", 0);
+    int *mask = parse_gaussian_yolo_mask(a, &num);
+    layer l = make_gaussian_yolo_layer(params.batch, params.w, params.h, num, total, mask, classes, max_boxes);
+    assert(l.outputs == params.inputs);
+
+    l.scale_x_y = option_find_float_quiet(options, "scale_x_y", 1);
+    l.max_boxes = option_find_int_quiet(options, "max", 90);
+    l.jitter = option_find_float(options, "jitter", .2);
+
+    l.ignore_thresh = option_find_float(options, "ignore_thresh", .5);
+    l.truth_thresh = option_find_float(options, "truth_thresh", 1);
+    l.random = option_find_int_quiet(options, "random", 0);
+
+    char *map_file = option_find_str(options, "map", 0);
+    if (map_file) l.map = read_map(map_file);
+
+    a = option_find_str(options, "anchors", 0);
+    if (a) {
+        int len = strlen(a);
+        int n = 1;
+        int i;
+        for (i = 0; i < len; ++i) {
+            if (a[i] == ',') ++n;
+        }
+        for (i = 0; i < n; ++i) {
             float bias = atof(a);
             l.biases[i] = bias;
             a = strchr(a, ',') + 1;
@@ -923,6 +997,8 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
             l = parse_region(options, params);
         }else if (lt == YOLO) {
             l = parse_yolo(options, params);
+        }else if (lt == GAUSSIAN_YOLO) {
+            l = parse_gaussian_yolo(options, params);
         }else if(lt == DETECTION){
             l = parse_detection(options, params);
         }else if(lt == SOFTMAX){

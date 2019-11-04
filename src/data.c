@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "image.h"
 #include "dark_cuda.h"
+#include "box.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -498,7 +499,16 @@ void fill_truth(char *path, char **labels, int k, float *truth)
             ++count;
         }
     }
-    if(count != 1) printf("Too many or too few labels: %d, %s\n", count, path);
+    if (count != 1) {
+        printf("Too many or too few labels: %d, %s\n", count, path);
+        count = 0;
+        for (i = 0; i < k; ++i) {
+            if (strstr(path, labels[i])) {
+                printf("\t label %d: %s  \n", count, labels[i]);
+                count++;
+            }
+        }
+    }
 }
 
 void fill_hierarchy(float *truth, int k, tree *hierarchy)
@@ -770,16 +780,6 @@ data load_data_swag(char **paths, int n, int classes, float jitter)
     return d;
 }
 
-static box float_to_box_stride(float *f, int stride)
-{
-    box b = { 0 };
-    b.x = f[0];
-    b.y = f[1 * stride];
-    b.w = f[2 * stride];
-    b.h = f[3 * stride];
-    return b;
-}
-
 void blend_truth(float *new_truth, int boxes, float *old_truth)
 {
     const int t_size = 4 + 1;
@@ -841,7 +841,8 @@ data load_data_detection(int n, char **paths, int m, int w, int h, int c, int bo
     d.y = make_matrix(n, 5*boxes);
     int i_mixup = 0;
     for (i_mixup = 0; i_mixup <= mixup; i_mixup++) {
-        if (i_mixup) augmentation_calculated = 0;
+        if (i_mixup) augmentation_calculated = 0;   // recalculate augmentation for the 2nd sequence if(track==1)
+
         for (i = 0; i < n; ++i) {
             float *truth = (float*)calloc(5 * boxes, sizeof(float));
             const char *filename = (i_mixup) ? mixup_random_paths[i] : random_paths[i];
@@ -875,7 +876,11 @@ data load_data_detection(int n, char **paths, int m, int w, int h, int c, int bo
                 dexp = rand_scale(exposure);
 
                 flip = use_flip ? random_gen() % 2 : 0;
-                blur = rand_int(0, 1) ? (use_blur) : 0;
+
+                //blur = rand_int(0, 1) ? (use_blur) : 0;
+                int tmp_blur = rand_int(0, 2);  // 0 - disable, 1 - blur background, 2 - blur the whole image
+                if (tmp_blur == 2) blur = use_blur;
+                else blur = tmp_blur;
             }
 
             int pleft = rand_precalc_random(-dw, dw, r1);
@@ -922,7 +927,7 @@ data load_data_detection(int n, char **paths, int m, int w, int h, int c, int bo
 
             int min_w_h = fill_truth_detection(filename, boxes, truth, classes, flip, dx, dy, 1. / sx, 1. / sy, w, h);
 
-            if (min_w_h < blur*4) blur = 0;   // disable blur if one of the objects is too small
+            if (min_w_h / 8 < blur && blur > 1) blur = min_w_h / 8;   // disable blur if one of the objects is too small
 
             image ai = image_data_augmentation(src, w, h, pleft, ptop, swidth, sheight, flip, dhue, dsat, dexp,
                 blur, boxes, d.y.vals[i]);
