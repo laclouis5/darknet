@@ -12,7 +12,6 @@ On a GPU system, you can force CPU evaluation by any of:
 - Set environment variable CUDA_VISIBLE_DEVICES to -1
 - Set environment variable "FORCE_CPU" to "true"
 
-
 To use, either run performDetect() after import, or modify the end of this file.
 
 See the docstring of performDetect() for parameters.
@@ -45,7 +44,7 @@ from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
 
-from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels
+from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size
 
 from utils import *
 from BoundingBox import BoundingBox
@@ -455,10 +454,10 @@ def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yo
 
 
 def convertBack(x, y, w, h):
-    xmin = int(round(x - (w / 2)))
-    xmax = int(round(x + (w / 2)))
-    ymin = int(round(y - (h / 2)))
-    ymax = int(round(y + (h / 2)))
+    xmin = x - (w / 2)
+    xmax = x + (w / 2)
+    ymin = y - (h / 2)
+    ymax = y + (h / 2)
     return xmin, ymin, xmax, ymax
 
 
@@ -506,7 +505,7 @@ def convertBack(x, y, w, h):
 
 
 # Created by Louis LAC 2019
-def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file):
+def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file, conv_back=False):
     """
     Perform detection on images in folder_path with the specified yolo
     model and saves detections in yolo format in save_dir folder.
@@ -526,12 +525,52 @@ def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file):
         for detection in detections:
             box = detection[2]
             label = detection[0]
-            # XYWH relative
-            (x, y, w, h) = box[0]/width, box[1]/height, box[2]/width, box[3]/height
+            if conv_back:
+            # XminYminXmaxYmax abs
+                (x, y, w, h) = convertBack(box[0], box[1], box[2], box[3])
+                w = w - 1
+                h = h - 1
+            else:
+                # XYWH relative
+                (x, y, w, h) = box[0]/width, box[1]/height, box[2]/width, box[3]/height
+
             confidence = detection[1]
-            lines.append("{} {} {} {} {} {}\n".format(map_labels[label], confidence, x, y, w, h))
+            lines.append("{} {} {} {} {} {}\n".format(label, confidence, x, y, w, h))
 
         with open(save_name, 'w') as f:
+            f.writelines(lines)
+
+
+def save_gt_to_txt(folder_path, save_dir, map, conv_back=False) :
+    files = [os.path.join(folder_path, item) for item in os.listdir(folder_path) if os.path.splitext(item)[1] == ".txt"]
+
+    create_dir(save_dir)
+
+    for file in files:
+        content = []
+        lines = []
+        with open(file, "r") as f:
+            content = f.readlines()
+            content = [item.strip().split() for item in content]
+
+        for line in content:
+            line[0] = map[int(line[0])]
+
+        for cont in content:
+            line = ""
+            if conv_back:
+                image = os.path.splitext(file)[0] + ".jpg"
+                (height, width) = cv.imread(image).shape[0:2]
+                (xmin, ymin, xmax, ymax) = convertBack(float(cont[1])*width, float(cont[2])*height, float(cont[3])*width, float(cont[4])*height)
+                line = "{} {} {} {} {}\n".format(cont[0], xmin, ymin, xmax-1, ymax-1)
+            else:
+                line = "{} {} {} {} {}\n".format(cont[0], cont[1], cont[2], cont[3], cont[4])
+
+            lines.append(line)
+
+        save_file = os.path.join(save_dir, os.path.basename(file))
+
+        with open(save_file, "w") as f:
             f.writelines(lines)
 
 
@@ -568,6 +607,7 @@ def draw_boxes(image, annotation, save_path, color=[255, 64, 0]):
     Takes path to one image and to one yolo-style detection file, draws
     bounding boxes into and saves it in save_path
     '''
+    create_dir(save_path)
     save_name        = os.path.join(save_path, os.path.basename(image))
     height, width, _ = cv.imread(image).shape
 
@@ -867,27 +907,109 @@ def filter_detections_2(folder, save_dir, model_param, k=5):
         draw_boxes_bboxes(image, boxes_to_keep, draw_dir)
 
 
+def double_detector(image, yolo_1, yolo_2):
+    # Unwrap models
+    model_1 = yolo_1["model"]
+    cfg_1 = yolo_1["cfg"]
+    obj_1 = yolo_1["obj"]
+
+    model_2 = yolo_2["model"]
+    cfg_2 = yolo_2["cfg"]
+    obj_2 = yolo_2["obj"]
+
+    global altNames
+    global net_2, meta_2
+
+    if net_2 is None:
+        net_2 = load_net_custom(cfg_2.encode("ascii"), model_2.encode("ascii"), 0, 1)  # batch size = 1
+    if meta_2 is None:
+        meta_2 = load_meta(obj_2.encode("ascii"))
+
+    img = cv.imread(image)
+    (height, width) = img.shape[0:2]
+
+    # Magouille
+    altNames = ['maize', 'bean', 'leek', 'stem_maize', 'stem_bean', 'stem_leek']
+    plant_detections = performDetect(image, thresh=0.25, configPath=cfg_1, weightPath=model_1, metaPath=obj_1, showImage=False)
+
+    print(image)
+
+    annotation = os.path.splitext(image)[0] + ".txt"
+    with open(annotation, "w") as f:
+        # Loop through plants
+        for plant_det in plant_detections:
+            (label, confidence, box) = plant_det
+
+            if "stem" in label: continue
+
+            (x, y, w, h) = clip_box_to_size(box, (width, height))
+            (xmin, ymin, xmax, ymax) = xywh_to_xyx2y2(box[0], box[1], box[2], box[3])
+            f.write("{} {} {} {} {} {}\n".format(label, confidence, xmin, ymin, xmax, ymax))
+            (x, y, w, h) = (int(x), int(y), int(w), int(h))
+            print(label, confidence, x, y, w, h)
+
+            patch = cv.getRectSubPix(img, (w, h), (x, y))
+            patch = cv.resize(patch, (832, 832))
+
+            altNames = ['stem_maize', 'stem_bean', 'stem_leek']
+            stem_detections = detect_image(net_2, meta_2, array_to_image(patch)[0], thresh=0.10)
+
+            for stem_det in stem_detections:
+                (stem_label, stem_confidence, stem_box) = stem_det
+                (xs, ys, ws, hs) = stem_box
+                print(" |", stem_label, stem_confidence, xs, ys, ws, hs)
+
+                new_x = x + (xs / 832 - 0.5) * w
+                new_y = y + (ys / 832 - 0.5) * h
+                new_w = ws / 832 * w
+                new_h = hs / 832 * h
+
+                (xmin_s, ymin_s, xmax_s, ymax_s) = xywh_to_xyx2y2(new_x, new_y, new_w, new_h)
+                f.write("{} {} {} {} {} {}\n".format(stem_label, stem_confidence, xmin_s, ymin_s, xmax_s, ymax_s))
+                print("  *", new_x, new_y, new_w, new_h)
+
+    boxes = read_detection_txt_file(annotation, (width, height))
+    boxes = nms(boxes, nms_thresh=0.4)
+    save_bboxes_to_txt(boxes, os.path.split(annotation)[0])
+
+    draw_boxes(image, annotation, "save/double-det/")
+
+
+net_2 = None
+meta_2 = None
+def double_detector_folder(folder, yolo_1, yolo_2):
+    images = [os.path.join(folder, item) for item in os.listdir(folder) if os.path.splitext(item)[1] == ".jpg"]
+
+    for image in images:
+        double_detector(image, yolo_1, yolo_2)
+
+
 if __name__ == "__main__":
     image_path  = "data/val/"
     train_path  = "data/train/"
-    model_path  = "results/yolo_v3_tiny_pan3_1/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou_best.weights"
-    config_file = "results/yolo_v3_tiny_pan3_1/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou.cfg"
-    meta_path   = "results/yolo_v3_tiny_pan3_1/obj.data"
 
-    yolo_param  = {"model": model_path, "cfg": config_file, "obj": meta_path}
+    yolo_1 = {
+        "model": "results/yolo_v3_tiny_pan3_4/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou_best.weights",
+        "cfg": "results/yolo_v3_tiny_pan3_4/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou.cfg",
+        "obj": "results/yolo_v3_tiny_pan3_4/obj.data"}
+
+    yolo_2 = {
+        "model": "results/yolo_v3_tiny_pan3_5/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou_best.weights",
+        "cfg": "results/yolo_v3_tiny_pan3_5/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou.cfg",
+        "obj": "results/yolo_v3_tiny_pan3_5/obj.data"}
 
     video_path  = "/media/deepwater/Elements/Louis/2019-07-25_larrere_videos/demo_tele_4K.mp4"
     video_param = {"skip_frames": 5, "down_scale": 2, "gray_scale": False, "ratio": 4/3}
 
     consort  = 'Bipbip'
     save_dir = 'save/'
-    labels_to_names = ['maize', 'bean', 'leek', 'maize_stem', 'bean_stem', 'leek_stem']
+    labels_to_names = ['maize', 'bean', 'leek', 'stem_maize', 'stem_bean', 'stem_leek']
     map_labels      = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
     # save_dir = /Users/louislac/Downloads/save/
 
     plant_to_keep = []
 
-    
+    double_detector_folder("data/test/", yolo_1, yolo_2)
 
     # files = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == ".txt"]
     #
@@ -922,8 +1044,8 @@ if __name__ == "__main__":
     # filter_detections(video_path, video_param, save_path, yolo_param, k=5)
     # filter_detections_2("/Volumes/KINGSTON/Bipbip_sept19/sm0128_1704")
 
-    # save_detect_to_txt(image_path, save_dir, model_path, config_file, meta_path)
-    # convert_yolo_annot_to_XYX2Y2(image_path, save_dir+'ground-truth/', labels_to_names)
+    # save_detect_to_txt(image_path, save_dir+"detections", model_path, config_file, meta_path, True)
+    # save_gt_to_txt(image_path, save_dir+"gts", labels_to_names, True)
 
     # with open("data/val.txt", "r") as f:
     #     content = f.readlines()

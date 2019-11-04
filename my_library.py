@@ -181,6 +181,17 @@ def xywh_to_xyx2y2(x, y, w, h):
     return xmin, ymin, xmax, ymax
 
 
+def xywh_to_xyx2y2_float(x, y, w, h):
+    '''
+    Takes as input absolute coords and returns integers.
+    '''
+    xmin = x - (w / 2)
+    xmax = x + (w / 2)
+    ymin = y - (h / 2)
+    ymax = y + (h / 2)
+    return xmin, ymin, xmax, ymax
+
+
 def xyx2y2_to_xywh(xmin, ymin, xmax, ymax):
     x = (xmax + xmin)/2.0
     y = (ymax + ymin)/2.0
@@ -378,3 +389,32 @@ def crop_detection_to_square(image_path, save_dir, model, config_file, meta_file
         save_name = os.path.splitext(os.path.basename(image))[0] + '.txt'
         with open(os.path.join(save_dir, save_name), 'w') as f:
             f.writelines(content_out)
+
+
+def clip_box_to_size(box, size):
+    (x, y, w, h) = box # Absolute size
+    (im_w, im_h) = size
+
+    l = max(w, h)
+    if l >= min(im_w, im_h):
+        l = min(im_w, im_h)
+
+    # Make it square, expand a little
+    new_x = x
+    new_y = y
+    new_w = l + 0.075 * min(im_w, im_h)
+    new_h = l + 0.075 * min(im_w, im_h)
+    
+
+    # Then clip shape to stay in original image
+    xmin, ymin, xmax, ymax = xywh_to_xyx2y2(new_x, new_y, new_w, new_h)
+    if xmin < 0:
+        new_x = x - xmin
+    if xmax >= im_w:
+        new_x = x - (xmax - im_w)
+    if ymin < 0:
+        new_y = y - ymin
+    if ymax >= im_h:
+        new_y = y - (ymax - im_h)
+
+    return  (new_x, new_y, new_w, new_h)
