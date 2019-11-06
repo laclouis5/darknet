@@ -920,20 +920,23 @@ def double_detector(image, yolo_1, yolo_2):
     global altNames
     global net_2, meta_2
 
+    # Instantiate second network if not
     if net_2 is None:
         net_2 = load_net_custom(cfg_2.encode("ascii"), model_2.encode("ascii"), 0, 1)  # batch size = 1
     if meta_2 is None:
         meta_2 = load_meta(obj_2.encode("ascii"))
 
+    # Read image and size
     img = cv.imread(image)
     (height, width) = img.shape[0:2]
 
-    # Magouille
+    # Perform plant detection on image
     altNames = ['maize', 'bean', 'leek', 'stem_maize', 'stem_bean', 'stem_leek']
     plant_detections = performDetect(image, thresh=0.25, configPath=cfg_1, weightPath=model_1, metaPath=obj_1, showImage=False)
 
     print(image)
 
+    # Open an annotation file
     annotation = os.path.splitext(image)[0] + ".txt"
     with open(annotation, "w") as f:
         # Loop through plants
@@ -942,44 +945,55 @@ def double_detector(image, yolo_1, yolo_2):
 
             if "stem" in label: continue
 
-            (x, y, w, h) = clip_box_to_size(box, (width, height))
+            # Save raw plant annotation
             (xmin, ymin, xmax, ymax) = xywh_to_xyx2y2(box[0], box[1], box[2], box[3])
             f.write("{} {} {} {} {} {}\n".format(label, confidence, xmin, ymin, xmax, ymax))
+
+            # Extract patch for this plant
+            (x, y, w, h) = clip_box_to_size(box, (width, height))
             (x, y, w, h) = (int(x), int(y), int(w), int(h))
             print(label, confidence, x, y, w, h)
 
             patch = cv.getRectSubPix(img, (w, h), (x, y))
             patch = cv.resize(patch, (832, 832))
 
+            # Detect stems on this plant
             altNames = ['stem_maize', 'stem_bean', 'stem_leek']
             stem_detections = detect_image(net_2, meta_2, array_to_image(patch)[0], thresh=0.10)
 
+            # Loop through stems
             for stem_det in stem_detections:
                 (stem_label, stem_confidence, stem_box) = stem_det
                 (xs, ys, ws, hs) = stem_box
                 print(" |", stem_label, stem_confidence, xs, ys, ws, hs)
 
+                # Compute coordinates in original image
                 new_x = x + (xs / 832 - 0.5) * w
                 new_y = y + (ys / 832 - 0.5) * h
                 new_w = ws / 832 * w
                 new_h = hs / 832 * h
 
+                # Save annotation
                 (xmin_s, ymin_s, xmax_s, ymax_s) = xywh_to_xyx2y2(new_x, new_y, new_w, new_h)
                 f.write("{} {} {} {} {} {}\n".format(stem_label, stem_confidence, xmin_s, ymin_s, xmax_s, ymax_s))
                 print("  *", new_x, new_y, new_w, new_h)
 
+    # Perform NMS to avoid redundancy and save the result
     boxes = read_detection_txt_file(annotation, (width, height))
     boxes = nms(boxes, nms_thresh=0.4)
     save_bboxes_to_txt(boxes, os.path.split(annotation)[0])
 
+    # Save annoted images for visualization
     draw_boxes(image, annotation, "save/double-det/")
 
 
+# Global variable for the secondary network
 net_2 = None
 meta_2 = None
 def double_detector_folder(folder, yolo_1, yolo_2):
     images = [os.path.join(folder, item) for item in os.listdir(folder) if os.path.splitext(item)[1] == ".jpg"]
 
+    # Loop through images
     for image in images:
         double_detector(image, yolo_1, yolo_2)
 

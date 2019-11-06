@@ -113,7 +113,7 @@ def save_bboxes_to_txt(bounding_boxes, save_dir):
             f.writelines(string)
 
 
-def read_detection_txt_file(file_path, img_size):
+def read_detection_txt_file(file_path, img_size=None):
     '''
     Takes a detection file and its correponding image size and returns
     a boundingBoxes object representing boxes. Detection file is XYX2Y2 abs
@@ -133,7 +133,7 @@ def read_detection_txt_file(file_path, img_size):
     return bounding_boxes
 
 
-def read_gt_annotation_file(file_path, img_size):
+def read_gt_annotation_file(file_path, img_size=None):
     '''
     Takes a yolo GT file and its correponding image size and returns
     a boundingBoxes object representing boxes. Yolo format is XYWH relative,
@@ -395,6 +395,7 @@ def clip_box_to_size(box, size):
     (x, y, w, h) = box # Absolute size
     (im_w, im_h) = size
 
+    # Max length
     l = max(w, h)
     if l >= min(im_w, im_h):
         l = min(im_w, im_h)
@@ -404,7 +405,6 @@ def clip_box_to_size(box, size):
     new_y = y
     new_w = l + 0.075 * min(im_w, im_h)
     new_h = l + 0.075 * min(im_w, im_h)
-    
 
     # Then clip shape to stay in original image
     xmin, ymin, xmax, ymax = xywh_to_xyx2y2(new_x, new_y, new_w, new_h)
