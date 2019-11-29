@@ -9,10 +9,8 @@ try:
 except:
     pass
 import os
-from BoundingBox import BoundingBox
-from BoundingBoxes import BoundingBoxes
-from utils import *
 from PIL import Image
+from BoxLibrary import *
 
 def egi_mask(image, thresh=40):
     '''
@@ -66,6 +64,7 @@ def create_dir(directory):
         os.mkdir(directory)
 
 
+# Obsolete
 def yolo_det_to_bboxes(image_name, yolo_detections):
     '''
     Takes as input a list of tuples (label, conf, x, w, w, h) predicted by
@@ -86,7 +85,7 @@ def yolo_det_to_bboxes(image_name, yolo_detections):
 
     return BoundingBoxes(bounding_boxes=bboxes)
 
-
+# Obsolete: see BoundingBoxes.save() and BoundingBox.description()
 def save_bboxes_to_txt(bounding_boxes, save_dir):
     '''
     Saves boxes wrapped in a boundingBoxes object to a yolo annotation file in
@@ -112,7 +111,7 @@ def save_bboxes_to_txt(bounding_boxes, save_dir):
         with open(os.path.join(save_dir, save_name), 'w') as f:
             f.writelines(string)
 
-
+# Obsolete: see Parser class
 def read_detection_txt_file(file_path, img_size=None):
     '''
     Takes a detection file and its correponding image size and returns
@@ -132,7 +131,7 @@ def read_detection_txt_file(file_path, img_size=None):
 
     return bounding_boxes
 
-
+# Obsolete: see Parser class
 def read_gt_annotation_file(file_path, img_size=None):
     '''
     Takes a yolo GT file and its correponding image size and returns
@@ -152,7 +151,7 @@ def read_gt_annotation_file(file_path, img_size=None):
 
     return bounding_boxes
 
-
+# Obsolete: see Parser class
 def parse_yolo_folder(data_dir):
     '''
     Parsed a folder containing yolo GT annotations and their corresponding
@@ -193,13 +192,13 @@ def xywh_to_xyx2y2_float(x, y, w, h):
 
 
 def xyx2y2_to_xywh(xmin, ymin, xmax, ymax):
-    x = (xmax + xmin)/2.0
-    y = (ymax + ymin)/2.0
+    x = (xmax + xmin) / 2.0
+    y = (ymax + ymin) / 2.0
     w = xmax - xmin
     h = ymax - ymin
     return x, y, w, h
 
-
+# Obsolete
 def save_yolo_detect_to_txt(yolo_detections, save_name):
     """
     Takes a list of yolo detections (tuples returned by the framework) and

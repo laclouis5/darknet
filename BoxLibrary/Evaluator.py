@@ -1,13 +1,3 @@
-###########################################################################################
-#                                                                                         #
-# Evaluator class: Implements the most popular metrics for object detection               #
-#                                                                                         #
-# Developed by: Rafael Padilla (rafael.padilla@smt.ufrj.br)                               #
-#        SMT - Signal Multimedia and Telecommunications Lab                               #
-#        COPPE - Universidade Federal do Rio de Janeiro                                   #
-#        Last modification: Oct 9th 2018                                                 #
-###########################################################################################
-
 import os
 import sys
 from collections import Counter
@@ -15,12 +5,15 @@ from collections import Counter
 import matplotlib.pyplot as plt
 import numpy as np
 
-from BoundingBox import *
-from BoundingBoxes import *
-from utils import *
+from .BoundingBox import BoundingBox
+from .BoundingBoxes import BoundingBoxes
+from .utils import *
 
 
 class Evaluator:
+
+    cocoThresholds = [thresh / 100 for thresh in range(50, 100, 5)]
+
     def GetPascalVOCMetrics(self,
                             boundingboxes,
                             IOUThreshold=0.5,
@@ -57,7 +50,7 @@ class Evaluator:
         # Get all classes
         classes = []
         # Loop through all bounding boxes and separate them into GTs and detections
-        for bb in boundingboxes.getBoundingBoxes():
+        for bb in boundingboxes:
             # [imageName, class, confidence, (bb coordinates XYX2Y2)]
             if bb.getBBType() == BBType.GroundTruth:
                 groundTruths.append([
@@ -96,22 +89,22 @@ class Evaluator:
                 det[key] = np.zeros(val)
             # print("Evaluating class: %s (%d detections)" % (str(c), len(dects)))
             # Loop through detections
-            for d in range(len(dects)):
+            for (d, dd) in enumerate(dects):
                 # print('dect %s => %s' % (dects[d][0], dects[d][3],))
                 # Find ground truth image
-                gt = [gt for gt in gts if gt[0] == dects[d][0]]
+                gt = [gt for gt in gts if gt[0] == dd[0]]
                 iouMax = sys.float_info.min
                 for j in range(len(gt)):
                     # print('Ground truth gt => %s' % (gt[j][3],))
-                    iou = Evaluator.iou(dects[d][3], gt[j][3])
+                    iou = Evaluator.iou(dd[3], gt[j][3])
                     if iou > iouMax:
                         iouMax = iou
                         jmax = j
                 # Assign detection as true positive/don't care/false positive
                 if iouMax >= IOUThreshold:
-                    if det[dects[d][0]][jmax] == 0:
+                    if det[dd[0]][jmax] == 0:
                         TP[d] = 1  # count as true positive
-                        det[dects[d][0]][jmax] = 1  # flag as already 'seen'
+                        det[dd[0]][jmax] = 1  # flag as already 'seen'
                         # print("TP")
                     else:
                         FP[d] = 1  # count as false positive
@@ -144,6 +137,44 @@ class Evaluator:
             }
             ret.append(r)
         return ret
+
+
+    def getCocoMetrics(self, boundingBoxes):
+        return [self.GetPascalVOCMetrics(boundingBoxes, thresh)
+            for thresh in self.cocoThresholds]
+
+
+    def getAP(self, boundingBoxes, thresh=0.5):
+        AP = [res["AP"]
+            for res in self.GetPascalVOCMetrics(boundingBoxes, thresh)]
+        return sum(AP) / len(AP) if AP else 0.0
+
+
+    def getCocoAP(self, boundingBoxes):
+        AP = [self.getAP(boundingBoxes, thresh)
+            for thresh in self.cocoThresholds]
+        return sum(AP) / len(AP) if AP else 0.0
+
+
+    def printAPs(self, boxes):
+        APs = [self.getAP(boxes, thresh)
+            for thresh in self.cocoThresholds]
+        cocoAP = sum(APs) / len(APs) if APs else 0.0
+
+        print("mAP@.50: {:.2%}".format(APs[0]))
+        print("mAP@.75: {:.2%}".format(APs[5]))
+        print("coco AP: {:.2%}".format(cocoAP))
+
+
+    def printAPsByClass(self, boxes, thresh=0.5):
+        if thresh is not None:
+            metrics = self.GetPascalVOCMetrics(boxes, thresh)
+            print("AP@{} by class:".format(thresh))
+            for metric in metrics:
+                label = metric["class"]
+                AP = metric["AP"]
+                print("  {:<13}: {:.2%}".format(label, AP))
+
 
     def PlotPrecisionRecallCurve(self,
                                  boundingBoxes,
@@ -226,7 +257,7 @@ class Evaluator:
                 # ap_str = "{0:.4f}%".format(average_precision * 100)
                 plt.title('Precision x Recall curve \nClass: %s, AP: %s' % (str(classId), ap_str))
             else:
-                plt.title('Precision x Recall curve \nClass: %s' % str(classId))
+                plt.title('Precision x Recall curve \nClass: %d' % classId)
             plt.legend(shadow=True)
             plt.grid()
             ############################################################

@@ -46,9 +46,7 @@ from joblib import Parallel, delayed
 
 from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size
 
-from utils import *
-from BoundingBox import BoundingBox
-from BoundingBoxes import BoundingBoxes
+from BoxLibrary import *
 
 def sample(probs):
     s = sum(probs)
@@ -503,8 +501,28 @@ def convertBack(x, y, w, h):
 #         (prec,  rec) = item["precision"], item["recall"]
 #         print("{} - mAP: {:.4} %, TP: {}, FP: {}, tot. pos.: {}".format(item['class'], 100*item['AP'], item["total TP"], item["total FP"], item["total positives"]))
 
-
+###########################
 # Created by Louis LAC 2019
+###########################
+
+def save_yolo_detections(network, file_dir, save_dir="", bbFormat=BBFormat.XYC, bbCoords=CoordinatesType.Relative):
+    model = network["model"]
+    cfg = network["cfg"]
+    obj = network["obj"]
+
+    create_dir(save_dir)
+    boxes = BoundingBoxes()
+    images = files_with_extension(file_dir, ".jpg")
+
+    for image in images:
+        img_size = image_size(image)
+        detections = performDetect(image, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
+        print(detections)
+        boxes += Parser.parse_yolo_darknet_detections(detections, image, img_size)
+
+    boxes.save(bbCoords, bbFormat, save_dir)
+
+# Obsolete?
 def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file, conv_back=False):
     """
     Perform detection on images in folder_path with the specified yolo
@@ -540,7 +558,7 @@ def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file, con
         with open(save_name, 'w') as f:
             f.writelines(lines)
 
-
+# Obsolete?
 def save_gt_to_txt(folder_path, save_dir, map, conv_back=False) :
     files = [os.path.join(folder_path, item) for item in os.listdir(folder_path) if os.path.splitext(item)[1] == ".txt"]
 
@@ -573,7 +591,7 @@ def save_gt_to_txt(folder_path, save_dir, map, conv_back=False) :
         with open(save_file, "w") as f:
             f.writelines(lines)
 
-
+# Obsolete
 def convert_yolo_annot_to_XYX2Y2(annotation_dir, save_dir, lab_to_name):
     """
     Convert annotation files of the specified directory in XYX2Y2 abs format and
@@ -602,6 +620,7 @@ def convert_yolo_annot_to_XYX2Y2(annotation_dir, save_dir, lab_to_name):
                 fw.write('{} {} {} {} {}\n'.format(lab_to_name[label], xmin, ymin, xmax, ymax))
 
 
+# Obsolete
 def draw_boxes(image, annotation, save_path, color=[255, 64, 0]):
     '''
     Takes path to one image and to one yolo-style detection file, draws
@@ -619,7 +638,7 @@ def draw_boxes(image, annotation, save_path, color=[255, 64, 0]):
 
     cv.imwrite(os.path.join(save_name), img)
 
-
+# Obsolete
 def draw_boxes_bboxes(image, bounding_boxes, save_dir, color=[255, 64, 0]):
     '''
     Takes as input one image (numpy array) and a BoundingBoxes object
@@ -651,7 +670,7 @@ def draw_deque_boxes(image, deq, save_path):
         i += 1
     cv.imwrite(save_path, image)
 
-
+# Obsolete
 def draw_boxes_folder(images_path, annotations_path, save_path):
     '''
     Takes path to a folder if images and a folder of corresponding annotations,
@@ -1002,6 +1021,11 @@ if __name__ == "__main__":
     image_path  = "data/val/"
     train_path  = "data/train/"
 
+    yolo = {
+        "model": "results/yolo_v3_tiny_pan_mixup_1/yolo_v3_tiny_pan_mixup_best.weights",
+        "cfg": "results/yolo_v3_tiny_pan_mixup_1/yolo_v3_tiny_pan_mixup.cfg",
+        "obj": "results/yolo_v3_tiny_pan_mixup_1/obj.data"}
+
     yolo_1 = {
         "model": "results/yolo_v3_tiny_pan3_4/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou_best.weights",
         "cfg": "results/yolo_v3_tiny_pan3_4/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou.cfg",
@@ -1023,7 +1047,9 @@ if __name__ == "__main__":
 
     plant_to_keep = []
 
-    double_detector_folder("data/test/", yolo_1, yolo_2)
+    # save_yolo_detections(yolo, image_path, "save/test")
+
+    double_detector_folder("data/double_detector/test/", yolo_1, yolo_2)
 
     # files = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == ".txt"]
     #
