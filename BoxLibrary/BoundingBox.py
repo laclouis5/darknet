@@ -164,6 +164,7 @@ class BoundingBox:
 
 
     def addIntoImage(self, image, color=None, thickness=2):
+        import cv2
         # Choose color if not specified
         if color is None:
             if self._bbType == BBType.GroundTruth:

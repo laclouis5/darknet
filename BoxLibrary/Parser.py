@@ -69,10 +69,12 @@ class Parser:
         return boxes
 
     @staticmethod
-    def parse_yolo_det_folder(folder, img_size=None, classes=None, bbFormat=BBFormat.XYWH, typeCoordinates=CoordinatesType.Relative):
+    def parse_yolo_det_folder(folder, img_folder, classes=None, bbFormat=BBFormat.XYWH, typeCoordinates=CoordinatesType.Relative):
         boxes = BoundingBoxes()
 
         for file in files_with_extension(folder, ".txt"):
+            image_name = os.path.join(img_folder, os.path.basename(os.path.splitext(file)[0] + ".jpg"))
+            img_size = PIL.Image.open(image_name).size
             boxes += Parser.parse_yolo_det_file(file, img_size, classes, bbFormat, typeCoordinates)
 
         return boxes
@@ -86,7 +88,9 @@ class Parser:
         boxes = BoundingBoxes()
         image_name = os.path.splitext(file)[0] + '.jpg'
         img_size = PIL.Image.open(image_name).size
-        classes = [str(item) for item in classes]
+
+        if classes:
+            classes = [str(item) for item in classes]
 
         content = open(file, "r").readlines()
         content = [line.strip().split() for line in content]
@@ -98,17 +102,21 @@ class Parser:
                 continue
 
             box = BoundingBox(imageName=image_name, classId=label,x=x, y=y, w=w, h=h, typeCoordinates=CoordinatesType.Relative, format=BBFormat.XYWH, imgSize=img_size, bbType=BBType.GroundTruth)
+
             boxes.append(box)
 
         return boxes
 
     @staticmethod
-    def parse_yolo_det_file(file, img_size=None, classes=None, bbFormat=BBFormat.XYWH, typeCoordinates=CoordinatesType.Relative):
+    def parse_yolo_det_file(file, img_size, classes=None, bbFormat=BBFormat.XYWH, typeCoordinates=CoordinatesType.Relative):
         """
         If coordinates are relative you should provide img_size.
         """
         boxes = BoundingBoxes()
-        classes = [str(item) for item in classes]
+        image_name = os.path.splitext(file)[0] + '.jpg'
+
+        if classes:
+            classes = [str(item) for item in classes]
 
         content = open(file, "r").readlines()
         content = [line.strip().split() for line in content]
@@ -119,7 +127,7 @@ class Parser:
             if classes and label not in classes:
                 continue
 
-            box = BoundingBox(imageName=image_name, classId=label, x=x, y=y, w=w, h=h, confidence=confidence, typeCoordinates=typeCoordinates, format=bbFormat, imgSize=img_size, bbType=BBType.Detected)
+            box = BoundingBox(imageName=image_name, classId=label, x=x, y=y, w=w, h=h, classConfidence=confidence, typeCoordinates=typeCoordinates, format=bbFormat, imgSize=img_size, bbType=BBType.Detected)
             boxes.append(box)
 
         return boxes
@@ -135,13 +143,12 @@ class Parser:
 
         for detection in detections:
             (label, confidence, box) = detection
-            (x_topLeft, y_topLeft, x_bottomRight, y_bottomRight) = box
+            (x, y, w, h) = box
 
             if classes and label not in classes:
                 continue
 
-            box = BoundingBox(imageName=image_name, classId=label, x=x_topLeft, y=y_topLeft, w=x_bottomRight, h=y_bottomRight, confidence=confidence, typeCoordinates=CoordinatesType.Absolute, format=BBFormat.XYX2Y2, imgSize=img_size, bbType=BBType.Detected)
-
+            box = BoundingBox(imageName=image_name, classId=label, x=x, y=y, w=w, h=h, classConfidence=confidence, typeCoordinates=CoordinatesType.Absolute, format=BBFormat.XYC, imgSize=img_size, bbType=BBType.Detected)
             boxes.append(box)
 
         return boxes

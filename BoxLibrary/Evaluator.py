@@ -54,13 +54,13 @@ class Evaluator:
             # [imageName, class, confidence, (bb coordinates XYX2Y2)]
             if bb.getBBType() == BBType.GroundTruth:
                 groundTruths.append([
-                    bb.getImageName(),
+                    os.path.basename(bb.getImageName()),
                     bb.getClassId(), 1,
                     bb.getAbsoluteBoundingBox(BBFormat.XYX2Y2)
                 ])
             else:
                 detections.append([
-                    bb.getImageName(),
+                    os.path.basename(bb.getImageName()),
                     bb.getClassId(),
                     bb.getConfidence(),
                     bb.getAbsoluteBoundingBox(BBFormat.XYX2Y2)

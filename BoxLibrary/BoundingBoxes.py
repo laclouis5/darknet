@@ -77,7 +77,7 @@ class BoundingBoxes(MutableSequence):
 
             print("{:<20} {:<15} {}".format(label, nb_images, nb_annot))
 
-    def save(self, type_coordinates=CoordinatesType.Relative, format=BBFormat.XYWH, save_dir=None):
+    def save(self, type_coordinates=CoordinatesType.Relative, format=BBFormat.XYX2Y2, save_dir=None):
         """
         Save all bounding boxes as Yolo annotation files in the specified directory.
         """
@@ -132,7 +132,7 @@ class BoundingBoxes(MutableSequence):
             box.addIntoImage(image)
         return image
 
-    def drawImage(self, name, save_dir=None):
+    def drawImage(self, name, save_dir=None, image_dir=None):
         """
         draws boxes for 'name' on its corresponding image name specified
         in box.imageName and saves it in save_dir if given.
@@ -143,11 +143,16 @@ class BoundingBoxes(MutableSequence):
             create_dir(save_dir)
             save_name = os.path.join(save_dir, os.path.basename(name))
 
-        image = cv.imread(name)
-        self.drawCVImage(image, save_name)
-        cv.imwrite(name, image)
+        if image_dir:
+            img_name = os.path.join(image_dir, os.path.basename(name))
+        else:
+            img_name = name
 
-    def drawAll(self, save_dir="annotated_images/"):
+        image = cv.imread(img_name)
+        self.drawCVImage(image, name)
+        cv.imwrite(save_name, image)
+
+    def drawAll(self, save_dir="annotated_images/", image_folder=None):
         """
         draws all boxes on their correponding image stored in box.imageName and
         saves images in save_dir.
@@ -156,8 +161,9 @@ class BoundingBoxes(MutableSequence):
 
         names = self.getNames()
         save_dir = [save_dir for _ in range(len(names))]
+        image_dir = [image_folder for _ in range(len(names))]
 
-        Parallel(n_jobs=-1, backend="multiprocessing")(delayed(self.drawImage)(name, sd) for (name, sd) in zip(names, save_dir))
+        Parallel(n_jobs=-1, backend="multiprocessing")(delayed(self.drawImage)(name, sd, idir) for (name, sd, idir) in zip(names, save_dir, image_dir))
 
     def clone(self):
         newBoundingBoxes = BoundingBoxes()

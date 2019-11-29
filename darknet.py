@@ -509,7 +509,7 @@ def convertBack(x, y, w, h):
 # Created by Louis LAC 2019
 ###########################
 
-def save_yolo_detections(network, file_dir, save_dir="", bbFormat=BBFormat.XYC, bbCoords=CoordinatesType.Relative):
+def save_yolo_detections(network, file_dir, save_dir="", bbCoords=CoordinatesType.Absolute, bbFormat=BBFormat.XYX2Y2, conf_thresh=0.25):
     model = network["model"]
     cfg = network["cfg"]
     obj = network["obj"]
@@ -520,8 +520,7 @@ def save_yolo_detections(network, file_dir, save_dir="", bbFormat=BBFormat.XYC, 
 
     for image in images:
         img_size = image_size(image)
-        detections = performDetect(image, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
-        print(detections)
+        detections = performDetect(image, thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
         boxes += Parser.parse_yolo_darknet_detections(detections, image, img_size)
 
     boxes.save(bbCoords, bbFormat, save_dir)
@@ -1030,6 +1029,11 @@ if __name__ == "__main__":
         "cfg": "results/yolo_v3_tiny_pan_mixup_1/yolo_v3_tiny_pan_mixup.cfg",
         "obj": "results/yolo_v3_tiny_pan_mixup_1/obj.data"}
 
+    yolo_test = {
+        "model": "results/yolov3-tiny-prn_1/yolov3-tiny-prn_best.weights",
+        "cfg": "results/yolov3-tiny-prn_1/yolov3-tiny-prn.cfg",
+        "obj": "results/yolov3-tiny-prn_1/obj.data"}
+
     yolo_1 = {
         "model": "results/yolo_v3_tiny_pan3_4/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou_best.weights",
         "cfg": "results/yolo_v3_tiny_pan3_4/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou.cfg",
@@ -1046,14 +1050,20 @@ if __name__ == "__main__":
     consort  = 'Bipbip'
     save_dir = 'save/'
     labels_to_names = ['maize', 'bean', 'leek', 'stem_maize', 'stem_bean', 'stem_leek']
-    map_labels      = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
+    label_to_number = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
+    number_to_label = {0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"}
     # save_dir = /Users/louislac/Downloads/save/
 
     plant_to_keep = []
 
-    # save_yolo_detections(yolo, image_path, "save/test")
+    save_yolo_detections(yolo_test, image_path, "save/test", CoordinatesType.Relative, conf_thresh=0.005)
 
-    double_detector_folder("data/double_detector/test/", yolo_1, yolo_2)
+    gts = Parser.parse_yolo_gt_folder(image_path)
+    gts.mapLabels(number_to_label)
+    dets = Parser.parse_yolo_det_folder("save/test", image_path)
+    Evaluator().printAPs(gts + dets)
+
+    # double_detector_folder("data/double_detector/test/", yolo_1, yolo_2)
 
     # files = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == ".txt"]
     #
