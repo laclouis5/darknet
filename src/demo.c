@@ -7,6 +7,7 @@
 #include "box.h"
 #include "image.h"
 #include "demo.h"
+#include "darknet.h"
 #ifdef WIN32
 #include <time.h>
 #include "gettimeofday.h"
@@ -104,7 +105,7 @@ double get_wall_time()
 }
 
 void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int cam_index, const char *filename, char **names, int classes,
-    int frame_skip, char *prefix, char *out_filename, int mjpeg_port, int json_port, int dont_show, int ext_output, int letter_box_in)
+    int frame_skip, char *prefix, char *out_filename, int mjpeg_port, int json_port, int dont_show, int ext_output, int letter_box_in, int time_limit_sec, char *http_post_host)
 {
     letter_box = letter_box_in;
     in_img = det_img = show_img = NULL;
@@ -200,6 +201,8 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
         //'W', 'M', 'V', '2'
     }
 
+    int send_http_post_once = 0;
+    const double start_time_lim = get_time_point();
     double before = get_wall_time();
 
     while(1){
@@ -227,6 +230,17 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
             if (demo_json_port > 0) {
                 int timeout = 400000;
                 send_json(local_dets, local_nboxes, l.classes, demo_names, frame_id, demo_json_port, timeout);
+            }
+
+            //char *http_post_server = "webhook.site/898bbd9b-0ddd-49cf-b81d-1f56be98d870";
+            if (http_post_host && !send_http_post_once) {
+                int timeout = 3;            // 3 seconds
+                int http_post_port = 80;    // 443 https, 80 http
+                if (send_http_post_request(http_post_host, http_post_port, filename,
+                    dets, nboxes, classes, names, frame_id, ext_output, timeout))
+                {
+                    if (time_limit_sec > 0) send_http_post_once = 1;
+                }
             }
 
             draw_detections_cv_v3(show_img, local_dets, local_nboxes, demo_thresh, demo_names, demo_alphabet, demo_classes, demo_ext_output);
@@ -273,6 +287,11 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
 
             pthread_join(fetch_thread, 0);
             pthread_join(detect_thread, 0);
+
+            if (time_limit_sec > 0 && (get_time_point() - start_time_lim)/1000000 > time_limit_sec) {
+                printf(" start_time_lim = %f, get_time_point() = %f, time spent = %f \n", start_time_lim, get_time_point(), get_time_point() - start_time_lim);
+                break;
+            }
 
             if (flag_exit == 1) break;
 
@@ -325,7 +344,7 @@ void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int 
 }
 #else
 void demo(char *cfgfile, char *weightfile, float thresh, float hier_thresh, int cam_index, const char *filename, char **names, int classes,
-    int frame_skip, char *prefix, char *out_filename, int mjpeg_port, int json_port, int dont_show, int ext_output, int letter_box_in)
+    int frame_skip, char *prefix, char *out_filename, int mjpeg_port, int json_port, int dont_show, int ext_output, int letter_box_in, int time_limit_sec, char *http_post_host)
 {
     fprintf(stderr, "Demo needs OpenCV for webcam images.\n");
 }

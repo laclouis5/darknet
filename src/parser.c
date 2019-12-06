@@ -725,6 +725,9 @@ layer parse_batchnorm(list *options, size_params params)
 
 layer parse_shortcut(list *options, size_params params, network net)
 {
+    char *activation_s = option_find_str(options, "activation", "logistic");
+    ACTIVATION activation = get_activation(activation_s);
+
     int assisted_excitation = option_find_float_quiet(options, "assisted_excitation", 0);
     char *l = option_find(options, "from");
     int index = atoi(l);
@@ -734,11 +737,8 @@ layer parse_shortcut(list *options, size_params params, network net)
     layer from = net.layers[index];
     if (from.antialiasing) from = *from.input_layer;
 
-    layer s = make_shortcut_layer(batch, index, params.w, params.h, params.c, from.out_w, from.out_h, from.out_c, assisted_excitation, params.train);
+    layer s = make_shortcut_layer(batch, index, params.w, params.h, params.c, from.out_w, from.out_h, from.out_c, assisted_excitation, activation, params.train);
 
-    char *activation_s = option_find_str(options, "activation", "linear");
-    ACTIVATION activation = get_activation(activation_s);
-    s.activation = activation;
     return s;
 }
 
@@ -758,6 +758,9 @@ layer parse_scale_channels(list *options, size_params params, network net)
     char *activation_s = option_find_str_quiet(options, "activation", "linear");
     ACTIVATION activation = get_activation(activation_s);
     s.activation = activation;
+    if (activation == SWISH || activation == MISH) {
+        printf(" [scale_channels] layer doesn't support SWISH or MISH activations \n");
+    }
     return s;
 }
 
@@ -775,6 +778,9 @@ layer parse_sam(list *options, size_params params, network net)
     char *activation_s = option_find_str_quiet(options, "activation", "linear");
     ACTIVATION activation = get_activation(activation_s);
     s.activation = activation;
+    if (activation == SWISH || activation == MISH) {
+        printf(" [sam] layer doesn't support SWISH or MISH activations \n");
+    }
     return s;
 }
 
@@ -916,6 +922,11 @@ void parse_net_options(list *options, network *net)
     net->flip = option_find_int_quiet(options, "flip", 1);
     net->blur = option_find_int_quiet(options, "blur", 0);
     net->mixup = option_find_int_quiet(options, "mixup", 0);
+    int cutmix = option_find_int_quiet(options, "cutmix", 0);
+    int mosaic = option_find_int_quiet(options, "mosaic", 0);
+    if (mosaic && cutmix) net->mixup = 4;
+    else if (cutmix) net->mixup = 2;
+    else if (mosaic) net->mixup = 3;
     net->letter_box = option_find_int_quiet(options, "letter_box", 0);
 
     net->angle = option_find_float_quiet(options, "angle", 0);
@@ -1137,6 +1148,7 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
 #ifdef GPU
             l.output_gpu = net.layers[count-1].output_gpu;
             l.delta_gpu = net.layers[count-1].delta_gpu;
+            l.keep_delta_gpu = 1;
 #endif
         }
         else if (lt == EMPTY) {
@@ -1157,7 +1169,7 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
 
 #ifdef GPU
         // futher GPU-memory optimization: net.optimized_memory == 2
-        if (net.optimized_memory >= 2 && params.train)
+        if (net.optimized_memory >= 2 && params.train && l.type != DROPOUT)
         {
             l.optimized_memory = net.optimized_memory;
             if (l.output_gpu) {
@@ -1176,7 +1188,7 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
             }
 
             // maximum optimization
-            if (net.optimized_memory >= 3) {
+            if (net.optimized_memory >= 3 && l.type != DROPOUT) {
                 if (l.delta_gpu) {
                     cuda_free(l.delta_gpu);
                     //l.delta_gpu = cuda_make_array_pinned_preallocated(NULL, l.batch*l.outputs); // l.steps
@@ -1246,7 +1258,7 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
             }
 
             // maximum optimization
-            if (net.optimized_memory >= 3) {
+            if (net.optimized_memory >= 3 && l.type != DROPOUT) {
                 if (l.delta_gpu && l.keep_delta_gpu) {
                     //cuda_free(l.delta_gpu);   // already called above
                     l.delta_gpu = cuda_make_array_pinned_preallocated(NULL, l.batch*l.outputs); // l.steps

@@ -14,7 +14,9 @@
 #include "gettimeofday.h"
 #else
 #include <sys/time.h>
+#include <sys/stat.h>
 #endif
+
 
 #ifndef USE_CMAKE_LIBS
 #pragma warning(disable: 4996)
@@ -180,7 +182,7 @@ void find_replace(const char* str, char* orig, char* rep, char* output)
 
     sprintf(buffer, "%s", str);
     if(!(p = strstr(buffer, orig))){  // Is 'orig' even in 'str'?
-        sprintf(output, "%s", str);
+        sprintf(output, "%s", buffer);
         free(buffer);
         return;
     }
@@ -935,4 +937,13 @@ boxabs box_to_boxabs(const box* b, const int img_w, const int img_h, const int b
     }
 
     return ba;
+}
+
+int make_directory(char *path, int mode)
+{
+#ifdef WIN32
+    return _mkdir(path);
+#else
+    return mkdir(path, mode);
+#endif
 }

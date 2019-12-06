@@ -55,6 +55,7 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
                 name_list, names_size, net_classes, cfgfile);
             if (net_classes > names_size) getchar();
         }
+        free_ptrs((void**)names, net_map.layers[net_map.n - 1].classes);
     }
 
     srand(time(0));
@@ -429,6 +430,104 @@ void print_imagenet_detections(FILE *fp, int id, detection *dets, int total, int
     }
 }
 
+static void print_kitti_detections(FILE **fps, char *id, detection *dets, int total, int classes, int w, int h, char *outfile, char *prefix)
+{
+    char *kitti_ids[] = { "car", "pedestrian", "cyclist" };
+    FILE *fpd = 0;
+    char buffd[1024];
+    snprintf(buffd, 1024, "%s/%s/data/%s.txt", prefix, outfile, id);
+
+    fpd = fopen(buffd, "w");
+    int i, j;
+    for (i = 0; i < total; ++i)
+    {
+        float xmin = dets[i].bbox.x - dets[i].bbox.w / 2.;
+        float xmax = dets[i].bbox.x + dets[i].bbox.w / 2.;
+        float ymin = dets[i].bbox.y - dets[i].bbox.h / 2.;
+        float ymax = dets[i].bbox.y + dets[i].bbox.h / 2.;
+
+        if (xmin < 0) xmin = 0;
+        if (ymin < 0) ymin = 0;
+        if (xmax > w) xmax = w;
+        if (ymax > h) ymax = h;
+
+        for (j = 0; j < classes; ++j)
+        {
+            //if (dets[i].prob[j]) fprintf(fpd, "%s 0 0 0 %f %f %f %f -1 -1 -1 -1 0 0 0 %f\n", kitti_ids[j], xmin, ymin, xmax, ymax, dets[i].prob[j]);
+            if (dets[i].prob[j]) fprintf(fpd, "%s -1 -1 -10 %f %f %f %f -1 -1 -1 -1000 -1000 -1000 -10 %f\n", kitti_ids[j], xmin, ymin, xmax, ymax, dets[i].prob[j]);
+        }
+    }
+    fclose(fpd);
+}
+
+static void eliminate_bdd(char *buf, char *a)
+{
+    int n = 0;
+    int i, k;
+    for (i = 0; buf[i] != '\0'; i++)
+    {
+        if (buf[i] == a[n])
+        {
+            k = i;
+            while (buf[i] == a[n])
+            {
+                if (a[++n] == '\0')
+                {
+                    for (k; buf[k + n] != '\0'; k++)
+                    {
+                        buf[k] = buf[k + n];
+                    }
+                    buf[k] = '\0';
+                    break;
+                }
+                i++;
+            }
+            n = 0; i--;
+        }
+    }
+}
+
+static void get_bdd_image_id(char *filename)
+{
+    char *p = strrchr(filename, '/');
+    eliminate_bdd(p, ".jpg");
+    eliminate_bdd(p, "/");
+    strcpy(filename, p);
+}
+
+static void print_bdd_detections(FILE *fp, char *image_path, detection *dets, int num_boxes, int classes, int w, int h)
+{
+    char *bdd_ids[] = { "bike" , "bus" , "car" , "motor" ,"person", "rider", "traffic light", "traffic sign", "train", "truck" };
+    get_bdd_image_id(image_path);
+    int i, j;
+
+    for (i = 0; i < num_boxes; ++i)
+    {
+        float xmin = dets[i].bbox.x - dets[i].bbox.w / 2.;
+        float xmax = dets[i].bbox.x + dets[i].bbox.w / 2.;
+        float ymin = dets[i].bbox.y - dets[i].bbox.h / 2.;
+        float ymax = dets[i].bbox.y + dets[i].bbox.h / 2.;
+
+        if (xmin < 0) xmin = 0;
+        if (ymin < 0) ymin = 0;
+        if (xmax > w) xmax = w;
+        if (ymax > h) ymax = h;
+
+        float bx1 = xmin;
+        float by1 = ymin;
+        float bx2 = xmax;
+        float by2 = ymax;
+
+        for (j = 0; j < classes; ++j)
+        {
+            if (dets[i].prob[j])
+            {
+                fprintf(fp, "\t{\n\t\t\"name\":\"%s\",\n\t\t\"category\":\"%s\",\n\t\t\"bbox\":[%f, %f, %f, %f],\n\t\t\"score\":%f\n\t},\n", image_path, bdd_ids[j], bx1, by1, bx2, by2, dets[i].prob[j]);
+            }
+        }
+    }
+}
+
 void validate_detector(char *datacfg, char *cfgfile, char *weightfile, char *outfile)
 {
     int j;
@@ -461,12 +560,32 @@ void validate_detector(char *datacfg, char *cfgfile, char *weightfile, char *out
     FILE **fps = 0;
     int coco = 0;
     int imagenet = 0;
+    int bdd = 0;
+    int kitti = 0;
+
     if (0 == strcmp(type, "coco")) {
         if (!outfile) outfile = "coco_results";
         snprintf(buff, 1024, "%s/%s.json", prefix, outfile);
         fp = fopen(buff, "w");
         fprintf(fp, "[\n");
         coco = 1;
+    }
+    else if (0 == strcmp(type, "bdd")) {
+        if (!outfile) outfile = "bdd_results";
+        snprintf(buff, 1024, "%s/%s.json", prefix, outfile);
+        fp = fopen(buff, "w");
+        fprintf(fp, "[\n");
+        bdd = 1;
+    }
+    else if (0 == strcmp(type, "kitti")) {
+        char buff2[1024];
+        if (!outfile) outfile = "kitti_results";
+        printf("%s\n", outfile);
+        snprintf(buff, 1024, "%s/%s", prefix, outfile);
+        int mkd = make_directory(buff, 0777);
+        snprintf(buff2, 1024, "%s/%s/data", prefix, outfile);
+        int mkd2 = make_directory(buff2, 0777);
+        kitti = 1;
     }
     else if (0 == strcmp(type, "imagenet")) {
         if (!outfile) outfile = "imagenet-detection";
@@ -477,7 +596,7 @@ void validate_detector(char *datacfg, char *cfgfile, char *weightfile, char *out
     }
     else {
         if (!outfile) outfile = "comp4_det_test_";
-        fps = (FILE**)calloc(classes, sizeof(FILE*));
+        fps = (FILE**) calloc(classes, sizeof(FILE *));
         for (j = 0; j < classes; ++j) {
             snprintf(buff, 1024, "%s/%s%s.txt", prefix, outfile, names[j]);
             fps[j] = fopen(buff, "w");
@@ -541,15 +660,23 @@ void validate_detector(char *datacfg, char *cfgfile, char *weightfile, char *out
                 if (l.nms_kind == DEFAULT_NMS) do_nms_sort(dets, nboxes, l.classes, nms);
                 else diounms_sort(dets, nboxes, l.classes, nms, l.nms_kind, l.beta_nms);
             }
+
             if (coco) {
                 print_cocos(fp, path, dets, nboxes, classes, w, h);
             }
             else if (imagenet) {
                 print_imagenet_detections(fp, i + t - nthreads + 1, dets, nboxes, classes, w, h);
             }
+            else if (bdd) {
+                print_bdd_detections(fp, path, dets, nboxes, classes, w, h);
+            }
+            else if (kitti) {
+                print_kitti_detections(fps, id, dets, nboxes, classes, w, h, outfile, prefix);
+            }
             else {
                 print_detector_detections(fps, id, dets, nboxes, classes, w, h);
             }
+
             free_detections(dets, nboxes);
             free(id);
             free_image(val[t]);
@@ -568,6 +695,17 @@ void validate_detector(char *datacfg, char *cfgfile, char *weightfile, char *out
 #endif
         fprintf(fp, "\n]\n");
     }
+
+    if (bdd) {
+#ifdef WIN32
+        fseek(fp, -3, SEEK_CUR);
+#else
+        fseek(fp, -2, SEEK_CUR);
+#endif
+        fprintf(fp, "\n]\n");
+        fclose(fp);
+    }
+
     if (fp) fclose(fp);
 
     if (val) free(val);
@@ -1455,6 +1593,8 @@ void run_detector(int argc, char **argv)
     int show_imgs = find_arg(argc, argv, "-show_imgs");
     int mjpeg_port = find_int_arg(argc, argv, "-mjpeg_port", -1);
     int json_port = find_int_arg(argc, argv, "-json_port", -1);
+    char *http_post_host = find_char_arg(argc, argv, "-http_post_host", 0);
+    int time_limit_sec = find_int_arg(argc, argv, "-time_limit_sec", 0);
     char *out_filename = find_char_arg(argc, argv, "-out_filename", 0);
     char *outfile = find_char_arg(argc, argv, "-out", 0);
     char *prefix = find_char_arg(argc, argv, "-prefix", 0);
@@ -1522,7 +1662,7 @@ void run_detector(int argc, char **argv)
             if (strlen(filename) > 0)
                 if (filename[strlen(filename) - 1] == 0x0d) filename[strlen(filename) - 1] = 0;
         demo(cfg, weights, thresh, hier_thresh, cam_index, filename, names, classes, frame_skip, prefix, out_filename,
-            mjpeg_port, json_port, dont_show, ext_output, letter_box);
+            mjpeg_port, json_port, dont_show, ext_output, letter_box, time_limit_sec, http_post_host);
 
         free_list_contents_kvp(options);
         free_list(options);
