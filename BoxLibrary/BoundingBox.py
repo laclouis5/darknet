@@ -94,15 +94,15 @@ class BoundingBox:
             self._width_img = imgSize[0]
             self._height_img = imgSize[1]
 
-
     def getAbsoluteBoundingBox(self, format=BBFormat.XYWH):
         if format == BBFormat.XYWH:
             return (self._x, self._y, self._w, self._h)
         elif format == BBFormat.XYX2Y2:
             return (self._x, self._y, self._x2, self._y2)
         elif format == BBFormat.XYC:
-            return convertToAbsCenterValues(self._x, self._y, self._x2, self._y2)
-
+            x = (xmax + xmin) / 2.0
+            y = (ymax + ymin) / 2.0
+            return (x, y, self._w, self._h)
 
     def getRelativeBoundingBox(self, imgSize=None):
         if imgSize is None and self._width_img is None and self._height_img is None:
@@ -114,7 +114,6 @@ class BoundingBox:
         else:
             return convertToRelativeValues((self._width_img, self._height_img),
                                            (self._x, self._x2, self._y, self._y2))
-
 
     def getImageName(self):
         return self._imageName
@@ -155,16 +154,18 @@ class BoundingBox:
             bbox = self.getRelativeBoundingBox()
         else:
             bbox = self.getAbsoluteBoundingBox(format)
-            bbox = (int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))
+            # bbox = (int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))
+            bbox = (bbox[0], bbox[1], bbox[2], bbox[3])
 
         if self._bbType == BBType.Detected:
-            return "{} {} {} {} {} {}\n".format(self._classId, self._classConfidence, bbox[0], bbox[1], bbox[2], bbox[3])
+            return "{} {} {} {} {} {}\n".format(self._classId, self._classConfidence, *bbox)
         else:
-            return "{} {} {} {} {}\n".format(self._classId, bbox[0], bbox[1], bbox[2], bbox[3])
+            return "{} {} {} {} {}\n".format(self._classId, *bbox)
 
 
     def addIntoImage(self, image, color=None, thickness=2):
         import cv2
+
         # Choose color if not specified
         if color is None:
             if self._bbType == BBType.GroundTruth:

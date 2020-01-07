@@ -108,7 +108,7 @@ class Parser:
         return boxes
 
     @staticmethod
-    def parse_yolo_det_file(file, img_size, classes=None, bbFormat=BBFormat.XYWH, typeCoordinates=CoordinatesType.Relative):
+    def parse_yolo_det_file(file, img_size=None, classes=None, bbFormat=BBFormat.XYWH, typeCoordinates=CoordinatesType.Relative):
         """
         If coordinates are relative you should provide img_size.
         """
