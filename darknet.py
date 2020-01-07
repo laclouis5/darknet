@@ -509,6 +509,23 @@ def convertBack(x, y, w, h):
 # Created by Louis LAC 2019
 ###########################
 
+class YoloModelPath:
+    def __init__(self, model_folder):
+        cfg = files_with_extension(model_folder, ".cfg")[0]
+        weights = files_with_extension(model_folder, ".weights")[0]
+        meta = files_with_extension(model_folder, ".data")[0]
+
+        if not os.path.exists(cfg):
+            raise ValueError("Invalid config file path '{}'".format(cfg))
+        if not os.path.exists(weights):
+            raise ValueError("Invalid weights file path '{}'".format(weights))
+        if not os.path.exists(meta):
+            raise ValueError("Invalid metadata file path '{}'".format(meta))
+
+        self.cfg = cfg
+        self.weights = weights
+        self.meta = meta
+
 def save_yolo_detections(network, file_dir, save_dir="", bbCoords=CoordinatesType.Absolute, bbFormat=BBFormat.XYX2Y2, conf_thresh=0.25):
     model = network["model"]
     cfg = network["cfg"]
@@ -524,6 +541,22 @@ def save_yolo_detections(network, file_dir, save_dir="", bbCoords=CoordinatesTyp
         boxes += Parser.parse_yolo_darknet_detections(detections, image, img_size)
 
     boxes.save(bbCoords, bbFormat, save_dir)
+
+def performDetectOnFolder(network, directory, conf_thresh=0.25):
+    model = network.weights
+    cfg = network.cfg
+    obj = network.meta
+
+    create_dir(save_dir)
+    boxes = BoundingBoxes()
+    images = files_with_extension(directory, ".jpg")
+
+    for image in images:
+        img_size = image_size(image)
+        detections = performDetect(image, thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
+        boxes += Parser.parse_yolo_darknet_detections(detections, image, img_size)
+
+    return boxes
 
 # Obsolete?
 def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file, conv_back=False):
@@ -1008,7 +1041,6 @@ def double_detector(image, yolo_1, yolo_2):
     # Save annoted images for visualization
     draw_boxes(image, annotation, "save/double-det/")
 
-
 # Global variable for the secondary network
 net_2 = None
 meta_2 = None
@@ -1021,18 +1053,12 @@ def double_detector_folder(folder, yolo_1, yolo_2):
 
 
 if __name__ == "__main__":
-    image_path  = "data/val/"
+    # image_path  = "data/val/"
+    image_path = "demo_mais/"
     train_path  = "data/train/"
 
-    yolo = {
-        "model": "results/yolo_v3_tiny_pan_mixup_1/yolo_v3_tiny_pan_mixup_best.weights",
-        "cfg": "results/yolo_v3_tiny_pan_mixup_1/yolo_v3_tiny_pan_mixup.cfg",
-        "obj": "results/yolo_v3_tiny_pan_mixup_1/obj.data"}
-
-    yolo_test = {
-        "model": "results/yolov3-tiny-prn_1/yolov3-tiny-prn_best.weights",
-        "cfg": "results/yolov3-tiny-prn_1/yolov3-tiny-prn.cfg",
-        "obj": "results/yolov3-tiny-prn_1/obj.data"}
+    model_path = "results/yolo_v3_tiny_pan3_7"
+    yolo = YoloModelPath(model_path)
 
     yolo_1 = {
         "model": "results/yolo_v3_tiny_pan3_4/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou_best.weights",
@@ -1052,16 +1078,20 @@ if __name__ == "__main__":
     labels_to_names = ['maize', 'bean', 'leek', 'stem_maize', 'stem_bean', 'stem_leek']
     label_to_number = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
     number_to_label = {0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"}
-    # save_dir = /Users/louislac/Downloads/save/
 
-    plant_to_keep = []
-
-    save_yolo_detections(yolo_test, image_path, "save/test", CoordinatesType.Relative, conf_thresh=0.005)
-
+    dets = performDetectOnFolder(yolo, image_path, 0.005)
     gts = Parser.parse_yolo_gt_folder(image_path)
     gts.mapLabels(number_to_label)
-    dets = Parser.parse_yolo_det_folder("save/test", image_path)
+
     Evaluator().printAPs(gts + dets)
+    Evaluator().printAPsByClass(gts + dets)
+    Evaluator().printAPsByClass(gts + dets, 20, EvaluationMethod.Distance)
+
+    # boxes = (gts + dets).getBoundingBoxByClass("stem_maize")
+
+    # boxes.drawAll(save_dir="annotated_images/")
+    gts.save(save_dir="save/groundTruths", type_coordinates=CoordinatesType.Absolute, format=BBFormat.XYX2Y2)
+    dets.save(save_dir="save/detections", type_coordinates=CoordinatesType.Absolute, format=BBFormat.XYX2Y2)
 
     # double_detector_folder("data/double_detector/test/", yolo_1, yolo_2)
 

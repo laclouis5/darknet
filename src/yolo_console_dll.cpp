@@ -12,9 +12,9 @@
 
 
 // It makes sense only for video-Camera (not for video-File)
-// To use - uncomment the following line. Optical-flow is supported only by OpenCV 3.x - 4.x
-//#define TRACK_OPTFLOW
-//#define GPU
+// // To use - uncomment the following line. Optical-flow is supported only by OpenCV 3.x - 4.x
+// #define TRACK_OPTFLOW
+// #define GPU
 
 // To use 3D-stereo camera ZED - uncomment the following line. ZED_SDK should be installed.
 //#define ZED_STEREO
@@ -269,9 +269,9 @@ public:
 
 int main(int argc, char *argv[])
 {
-    std::string  names_file = "data/coco.names";
-    std::string  cfg_file = "cfg/yolov3.cfg";
-    std::string  weights_file = "yolov3.weights";
+    std::string names_file = "data/obj.names";
+    std::string cfg_file = "results/yolo_v3_tiny_pan3_6/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou.cfg";
+    std::string weights_file = "results/yolo_v3_tiny_pan3_6/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou_best.weights";
     std::string filename;
 
     if (argc > 4) {    //voc.names yolo-voc.cfg yolo-voc.weights test.mp4
@@ -280,7 +280,11 @@ int main(int argc, char *argv[])
         weights_file = argv[3];
         filename = argv[4];
     }
-    else if (argc > 1) filename = argv[1];
+    else if (argc == 2) filename = argv[1];
+    else if (argc == 3 || argc == 4) {
+      std::cout << "Error: argc should be 2, 5, or 6, not " << argc << std::endl;
+      return -1;
+    }
 
     float const thresh = (argc > 5) ? std::stof(argv[5]) : 0.2;
 
@@ -288,13 +292,13 @@ int main(int argc, char *argv[])
 
     auto obj_names = objects_names_from_file(names_file);
     std::string out_videofile = "result.avi";
-    bool const save_output_videofile = false;   // true - for history
+    bool const save_output_videofile = true;   // true - for history
     bool const send_network = false;        // true - for remote detection
-    bool const use_kalman_filter = false;   // true - for stationary camera
+    bool const use_kalman_filter = true;   // true - for stationary camera
 
     bool detection_sync = true;             // true - for video-file
 #ifdef TRACK_OPTFLOW    // for slow GPU
-    detection_sync = false;
+    // detection_sync = false;
     Tracker_optflow tracker_flow;
     //detector.wait_stream = true;
 #endif  // TRACK_OPTFLOW
@@ -373,7 +377,7 @@ int main(int argc, char *argv[])
                 cv::VideoWriter output_video;
                 if (save_output_videofile)
 #ifdef CV_VERSION_EPOCH // OpenCV 2.x
-                    output_video.open(out_videofile, CV_FOURCC('D', 'I', 'V', 'X'), std::max(35, video_fps), frame_size, true);
+                    output_video.open(out_videofile, CV_FOURCC('D', 'I', 'V', 'X'), std::max(1, video_fps), frame_size, true);
 #else
                     output_video.open(out_videofile, cv::VideoWriter::fourcc('D', 'I', 'V', 'X'), std::max(35, video_fps), frame_size, true);
 #endif

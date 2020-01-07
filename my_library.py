@@ -74,9 +74,9 @@ def yolo_det_to_bboxes(image_name, yolo_detections):
     bboxes = []
 
     for detection in yolo_detections:
-        label      = detection[0]
+        label = detection[0]
         confidence = detection[1]
-        box        = detection[2]
+        box = detection[2]
         (xmin, ymin, xmax, ymax) = xywh_to_xyx2y2(box[0], box[1], box[2], box[3])
 
         bbox = BoundingBox(imageName=image_name, classId=label, x=xmin, y=ymin, w=xmax, h=ymax, typeCoordinates=CoordinatesType.Absolute, classConfidence=confidence, bbType=BBType.Detected, format=BBFormat.XYX2Y2)
@@ -101,7 +101,7 @@ def save_bboxes_to_txt(bounding_boxes, save_dir):
         string = ""
         for box in boxes:
             label = box.getClassId()
-            conf  = box.getConfidence()
+            conf = box.getConfidence()
             (xmin, ymin, xmax, ymax) = box.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
 
             string += "{} {} {} {} {} {}\n".format(label, str(conf), str(xmin), str(ymin), str(xmax), str(ymax))
@@ -294,15 +294,15 @@ def crop_annotation_to_square(annot_folder, save_dir, lab_to_name):
                 if not (x*img_w < w_lim_1 or x*img_w > w_lim_2):
                     print("In square bounds")
                     # But if bbox spans out of one bound (l or r)
-                    if (x - w/2.0) < (float(w_lim_1)/img_w):
+                    if (x - w / 2.0) < float(w_lim_1) / img_w:
                         print("Spans out of left bound")
                         # Then adjust bbox to fit in the square
-                        w = w - (float(w_lim_1)/img_w - (x - w/2.0))
-                        x = float(w_lim_1+1)/img_w + w/2.0
-                    if (x + w/2.0) > (float(w_lim_2)/img_w):
+                        w = w - (float(w_lim_1) / img_w - (x - w / 2.0))
+                        x = float(w_lim_1 + 1) / img_w + w / 2.0
+                    if (x + w / 2.0) > float(w_lim_2) / img_w:
                         print("Span out of right bound")
-                        w = w - (x + w/2.0 - float(w_lim_2)/img_w)
-                        x = float(w_lim_2)/img_w - w/2.0
+                        w = w - (x + w / 2.0 - float(w_lim_2) / img_w)
+                        x = float(w_lim_2) / img_w - w / 2.0
                     else:
                         print("Does not spans outside")
 
@@ -313,17 +313,17 @@ def crop_annotation_to_square(annot_folder, save_dir, lab_to_name):
                     continue
 
                 # Do not forget to convert from old coord sys to new one
-                x = (x*img_w - float(w_lim_1))/float(w_lim_2 - w_lim_1)
-                w = w*img_w/float(w_lim_2 - w_lim_1)
+                x = (x * img_w - float(w_lim_1)) / float(w_lim_2 - w_lim_1)
+                w = w * img_w / float(w_lim_2 - w_lim_1)
 
                 assert x >= 0, "Value was {}".format(x)
                 assert x <= 1, "Value was {}".format(x)
-                assert (x - w/2) >= 0, "Value was {}".format(x - w/2)
-                assert (x + w/2) <= 1, "Value was {}".format(x + w/2)
+                assert (x - w / 2) >= 0, "Value was {}".format(x - w / 2)
+                assert (x + w / 2) <= 1, "Value was {}".format(x + w / 2)
 
                 size = min(img_w, img_h)
 
-                (xmin, ymin, xmax, ymax) = xywh_to_xyx2y2(x*size, y*size, w*size, h*size)
+                (xmin, ymin, xmax, ymax) = xywh_to_xyx2y2(x * size, y * size, w * size, h * size)
 
                 new_line = "{} {} {} {} {}\n".format(lab_to_name[label], xmin, ymin, xmax, ymax)
                 content_out.append(new_line)
@@ -334,13 +334,13 @@ def crop_annotation_to_square(annot_folder, save_dir, lab_to_name):
 
 
 def crop_detection_to_square(image_path, save_dir, model, config_file, meta_file):
-    images = [os.path.join(image_path, item) for item in os.listdir(image_path) if os.path.splitext(item)[1] == '.jpg']
+    images = files_with_extension(image_path, ".jpg")
     images.sort()
 
     for image in images:
         content_out = []
         (img_w, img_h) = Image.open(image).size
-        (w_lim_1, w_lim_2) = round(float(img_w)/2 - float(img_h)/2), round(float(img_w)/2 + float(img_h)/2)
+        (w_lim_1, w_lim_2) = round(float(img_w) / 2 - float(img_h) / 2), round(float(img_w) / 2 + float(img_h) / 2)
 
         detections = performDetect(
             imagePath=image,
@@ -353,33 +353,33 @@ def crop_detection_to_square(image_path, save_dir, model, config_file, meta_file
             label = detection[0]
             prob = detection[1]
             (x, y, w, h) = detection[2]
-            (x, y, w, h) = (x/img_w, y/img_h, w/img_w, h/img_h)
+            (x, y, w, h) = (x / img_w, y / img_h, w / img_w, h / img_h)
 
             # If bbox is not out of the new square frame
-            if not (x*img_w < w_lim_1 or x*img_w > w_lim_2):
+            if not (x * img_w < w_lim_1 or x * img_w > w_lim_2):
                 # But if bbox spans out of one bound (l or r)
-                if (x - w/2.0) < (float(w_lim_1)/img_w):
+                if x - w / 2.0 < float(w_lim_1) / img_w:
                     # Then adjust bbox to fit in the square
-                    w = w - (float(w_lim_1)/img_w - (x - w/2.0))
-                    x = float(w_lim_1+1)/img_w + w/2.0
-                if (x + w/2.0) > (float(w_lim_2)/img_w):
-                    w = w - (x + w/2.0 - float(w_lim_2)/img_w)
-                    x = float(w_lim_2)/img_w - w/2.0
+                    w = w - (float(w_lim_1) / img_w - (x - w / 2.0))
+                    x = float(w_lim_1 + 1) / img_w + w / 2.0
+                if x + w / 2.0 > float(w_lim_2) / img_w:
+                    w = w - (x + w / 2.0 - float(w_lim_2) / img_w)
+                    x = float(w_lim_2) / img_w - w / 2.0
 
             else: continue
 
             # Do not forget to convert from old coord sys to new one
-            x = (x*img_w - float(w_lim_1))/float(w_lim_2 - w_lim_1)
-            w = w*img_w/float(w_lim_2 - w_lim_1)
+            x = (x * img_w - float(w_lim_1)) / float(w_lim_2 - w_lim_1)
+            w = w * img_w / float(w_lim_2 - w_lim_1)
 
             assert x >= 0, "Value was {}".format(x)
             assert x <= 1, "Value was {}".format(x)
-            assert (x - w/2) >= 0, "Value was {}".format(x - w/2)
-            assert (x + w/2) <= 1, "Value was {}".format(x + w/2)
+            assert (x - w / 2) >= 0, "Value was {}".format(x - w / 2)
+            assert (x + w / 2) <= 1, "Value was {}".format(x + w / 2)
 
             size = min(img_w, img_h)
 
-            (xmin, ymin, xmax, ymax) = xywh_to_xyx2y2(x*size, y*size, w*size, h*size)
+            (xmin, ymin, xmax, ymax) = xywh_to_xyx2y2(x * size, y * size, w * size, h * size)
 
             new_line = "{} {} {} {} {} {}\n".format(label, prob, xmin, ymin, xmax, ymax)
             content_out.append(new_line)
