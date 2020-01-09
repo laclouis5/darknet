@@ -12,6 +12,43 @@ import os
 from PIL import Image
 from BoxLibrary import *
 
+def convert_to_grayscale(image):
+    '''
+    Convert an image (numpy array) to grayscale.
+    '''
+    frame = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+    return frame
+
+def optical_flow(image_1, image_2, prev_opt_flow=None):
+    first_image = convert_to_grayscale(image_1)
+    second_image = convert_to_grayscale(image_2)
+
+    if prev_opt_flow is None:
+        prev_opt_flow = np.zeros_like(first_image)
+
+    optical_flow = cv.calcOpticalFlowFarneback(
+        prev=first_image,
+        next=second_image,
+        flow=prev_opt_flow,
+        pyr_scale=0.5,
+        levels=4,
+        winsize=32,
+        iterations=3,
+        poly_n=5,
+        poly_sigma=1.2,
+        flags=0)
+
+    return optical_flow
+
+def mean_opt_flow(optical_flow):
+        dx = optical_flow[..., 0]
+        dy = optical_flow[..., 1]
+
+        mean_dx = dx.sum() / dx.size
+        mean_dy = dy.sum() / dy.size
+
+        return mean_dx, mean_dy
+
 def egi_mask(image, thresh=40):
     '''
     Takes as input a numpy array describing an image and return a
