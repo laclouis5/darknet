@@ -44,9 +44,10 @@ from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
 
-from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size
+from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, mean_opt_flow, convert_to_grayscale
 
 from BoxLibrary import *
+from sort import *
 
 def sample(probs):
     s = sum(probs)
@@ -454,7 +455,6 @@ def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yo
             print("Unable to show image: "+str(e))
     return detections
 
-
 def convertBack(x, y, w, h):
     xmin = x - (w / 2)
     xmax = x + (w / 2)
@@ -462,6 +462,16 @@ def convertBack(x, y, w, h):
     ymax = y + (h / 2)
     return xmin, ymin, xmax, ymax
 
+def get_classes(obj):
+    metadata = load_meta(obj.encode("ascii"))
+    nb_classes = metadata.classes
+
+    labels = []
+
+    for i in range(nb_classes):
+        labels.append(metadata.names[i].decode())
+
+    return labels
 
 # from BoundingBox import BoundingBox
 # from BoundingBoxes import BoundingBoxes
@@ -557,6 +567,48 @@ def performDetectOnFolder(network, directory, conf_thresh=0.25):
         boxes += Parser.parse_yolo_darknet_detections(detections, image, img_size)
 
     return boxes
+
+def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=30, min_hits=3):
+    model = network.weights
+    cfg = network.cfg
+    obj = network.meta
+
+    performDetect("", thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False, initOnly=True)
+
+    create_dir(save_dir)
+
+    images = files_with_extension(directory, ".jpg")
+    images.sort(key=os.path.getmtime)
+
+    labels = get_classes(obj)
+    trackers = {label: Sort(max_age, min_hits) for label in labels}
+    all_boxes = BoundingBoxes()
+
+    opt_flow = None
+
+    for i, image in enumerate(images[1:]):
+        print("IMAGE: {}".format(image))
+        detections = performDetect(image, thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
+
+        opt_flow = optical_flow(cv.imread(images[i]), cv.imread(image), opt_flow) # Not optimized
+        dx, dy = mean_opt_flow(opt_flow)
+        print("OPT FLOW: ({}, {})".format(dx, dy))
+
+        det_boxes = Parser.parse_yolo_darknet_detections(detections, image, img_size=image_size(image))
+
+        for label in ["maize", "stem_maize"]:
+            label_boxes = det_boxes.getBoundingBoxByClass(label)
+            print("DETECTIONS:")
+            [print(box.description(format=BBFormat.XYX2Y2)) for box in label_boxes]
+            tracks = trackers[label].update(label_boxes.getDetectionBoxesAsNPArray(), (dx, dy))
+            print("TRACKS:")
+            [print(track) for track in tracks]
+
+            tracked_boxes = [BoundingBox(image, label, *track[:4], CoordinatesType.Absolute, image_size(image), BBType.Detected, 1, BBFormat.XYX2Y2) for track in tracks]
+
+            all_boxes += tracked_boxes
+
+    return all_boxes
 
 # Obsolete?
 def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file, conv_back=False):
@@ -747,15 +799,6 @@ def ImageGeneratorFromVideo(video_path, skip_frames=1, gray_scale=True, down_sca
 
         yield(ret, frame)
 
-
-def convert_to_grayscale(image):
-    '''
-    Convert an image (numpy array) to grayscale. Needs openCV.
-    '''
-    frame = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
-    return frame
-
-
 def ImageGeneratorFromFolder(folder, sorted=False):
     '''
     Generator that yields images from a specified folder. Can be sorted.
@@ -831,7 +874,7 @@ def filter_detections(video_path, video_param, save_dir, yolo_param, k=5):
     save_bboxes_to_txt(bboxes, annot_dir)
     draw_deque_boxes(first_image, boxes, os.path.join(draw_dir, "im_0.jpg"))
 
-    first_image = convert_to_grayscale(first_image)
+    first_image = scale(first_image)
     prev_opt_flow = np.zeros_like(first_image)
     file_nb = 1
 
@@ -1054,7 +1097,7 @@ def double_detector_folder(folder, yolo_1, yolo_2):
 
 if __name__ == "__main__":
     # image_path  = "data/val/"
-    image_path = "demo_mais/"
+    image_path = "data/demo_mais/"
     train_path  = "data/train/"
 
     model_path = "results/yolo_v3_tiny_pan3_7"
@@ -1079,19 +1122,44 @@ if __name__ == "__main__":
     label_to_number = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
     number_to_label = {0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"}
 
-    dets = performDetectOnFolder(yolo, image_path, 0.005)
+    # dets = performDetectOnFolder(yolo, image_path, 0.20)
+    dets = performDetectOnFolderAndTrack(yolo, image_path, conf_thresh=0.2, min_hits=5)
     gts = Parser.parse_yolo_gt_folder(image_path)
     gts.mapLabels(number_to_label)
 
-    Evaluator().printAPs(gts + dets)
-    Evaluator().printAPsByClass(gts + dets)
-    Evaluator().printAPsByClass(gts + dets, 20, EvaluationMethod.Distance)
+    # Evaluator().printAPs(gts + dets)
+    # Evaluator().printAPsByClass(gts + dets)
+    # Evaluator().printAPsByClass(gts + dets, 20, EvaluationMethod.Distance)
 
-    # boxes = (gts + dets).getBoundingBoxByClass("stem_maize")
+    dets.drawAll(save_dir="save/annotated_images/")
 
-    # boxes.drawAll(save_dir="annotated_images/")
-    gts.save(save_dir="save/groundTruths", type_coordinates=CoordinatesType.Absolute, format=BBFormat.XYX2Y2)
-    dets.save(save_dir="save/detections", type_coordinates=CoordinatesType.Absolute, format=BBFormat.XYX2Y2)
+    # tracker = Sort(max_age=3, min_hits=1)
+    # mult = 2
+    # for i in range(6):
+    #     if i != 2 and i != 3 and i != 4:
+    #         dets = np.array([[10 + i * (mult + 1), 10, 20 + i * (mult + 1), 20, 1]])
+    #         if i == 5:
+    #             dets = np.array([[13, 10, 23, 20]])
+    #     else:
+    #         dets = np.array([])
+    #     print(i)
+    #     print("Dets:")
+    #     print(dets)
+    #     (print("Speed:"))
+    #     if i < 2 :
+    #         print("{}, {}".format(mult, 0))
+    #         tracks = tracker.update(dets, (mult, 0))
+    #     else:
+    #         print("{}, {}".format(0, 0))
+    #         tracks = tracker.update(dets, (0, 0))
+    #     print("Tracks:")
+    #     print(tracks)
+    #     print("Self.Trackers:")
+    #     [print(tracker.trackers[i].get_state()) for i in range(len(tracker.trackers))]
+    #     print("\n")
+
+    # gts.save(save_dir="save/groundTruths", type_coordinates=CoordinatesType.Absolute, format=BBFormat.XYX2Y2)
+    # dets.save(save_dir="save/detections", type_coordinates=CoordinatesType.Absolute, format=BBFormat.XYX2Y2)
 
     # double_detector_folder("data/double_detector/test/", yolo_1, yolo_2)
 
