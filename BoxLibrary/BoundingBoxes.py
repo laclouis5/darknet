@@ -45,6 +45,12 @@ class BoundingBoxes(MutableSequence):
     def getBoundingBoxByClass(self, classId):
         return BoundingBoxes([bb for bb in self if bb.getClassId() == classId])
 
+    def getDetectionBoxesAsNPArray(self):
+        import numpy as np
+        detection_boxes = self.getBoundingBoxesByType(BBType.Detected)
+        array = [[*box.getAbsoluteBoundingBox(BBFormat.XYX2Y2), box.getConfidence()] for box in detection_boxes]
+        return np.array(array)
+
     def imageSize(self, imageName):
         box = next((box for box in self if box.getImageName() == imageName), None)
         if box is None:

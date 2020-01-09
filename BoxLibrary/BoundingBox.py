@@ -100,8 +100,8 @@ class BoundingBox:
         elif format == BBFormat.XYX2Y2:
             return (self._x, self._y, self._x2, self._y2)
         elif format == BBFormat.XYC:
-            x = (xmax + xmin) / 2.0
-            y = (ymax + ymin) / 2.0
+            x = (self._x + self._x2) / 2.0
+            y = (self._y + self._y2) / 2.0
             return (x, y, self._w, self._h)
 
     def getRelativeBoundingBox(self, imgSize=None):
