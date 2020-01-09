@@ -81,20 +81,20 @@ class KalmanBoxTracker(object):
     """
     count = 0
 
-    def __init__(self, bbox):
+    def __init__(self, bbox, velocity=None):
         """
         Initialises a tracker using initial bounding box.
         """
 
         # define constant velocity model
-        self.kf = KalmanFilter(dim_x=7, dim_z=4)
+        self.kf = KalmanFilter(dim_x=7, dim_z=4, dim_u=2)
         self.kf.F = np.array([
             [1, 0, 0, 0, 1, 0, 0],
             [0, 1, 0, 0, 0, 1, 0],
             [0, 0, 1, 0, 0, 0, 1],
             [0, 0, 0, 1, 0, 0, 0],
-            [0, 0, 0, 0, 1, 0, 0],
-            [0, 0, 0, 0, 0, 1, 0],
+            [0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0],
             [0, 0, 0, 0, 0, 0, 1]
         ])
         self.kf.H = np.array([
@@ -103,20 +103,34 @@ class KalmanBoxTracker(object):
             [0, 0, 1, 0, 0, 0, 0],
             [0, 0, 0, 1, 0, 0, 0]
         ])
+        self.kf.B = np.array([
+            [0, 0],
+            [0, 0],
+            [0, 0],
+            [0, 0],
+            [1, 0],
+            [0, 1],
+            [0, 0],
+        ])
         self.kf.R[2:, 2:] *= 10.
-        self.kf.P[4:, 4:] *= 1000.  # give high uncertainty to the unobservable initial velocities
+        self.kf.P[4:, 4:] *= 10. # 1000.  # give high uncertainty to the unobservable initial velocities
         self.kf.P *= 10.
         self.kf.Q[-1, -1] *= 0.01
         self.kf.Q[4:, 4:] *= 0.01
 
         self.kf.x[:4] = convert_bbox_to_z(bbox)
+        if velocity is not None:
+            self.kf.x[4, :] = velocity[0]
+            self.kf.x[5, :] = velocity[1]
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
         self.history = []
         self.hits = 0
         self.hit_streak = 0
+        self.max_hit_streak = 0
         self.age = 0
+        # self.score = bbox[4]
 
     def update(self, bbox):
         """
@@ -126,17 +140,27 @@ class KalmanBoxTracker(object):
         self.history = []
         self.hits += 1
         self.hit_streak += 1
+        self.max_hit_streak = max(self.hit_streak, self.max_hit_streak)
         self.kf.update(convert_bbox_to_z(bbox))
+        # self.score = bbox[4]
 
-    def predict(self):
+    def predict(self, velocity=None):
         """
         Advances the state vector and returns the predicted bounding box estimate.
         """
         if (self.kf.x[6] + self.kf.x[2]) <= 0:
             self.kf.x[6] *= 0.0
 
-        self.kf.predict()
+        if velocity is not None:
+            self.kf.predict(u=np.array([[velocity[0]], [velocity[1]]]))
+            # print("STATE: ")
+            # print(self.kf.x)
+        else:
+            self.kf.predict()
+
         self.age += 1
+
+        # Other idea: reset to 0 but keep if hit streak (save max value)
 
         if self.time_since_update > 0:
             self.hit_streak = 0
@@ -168,7 +192,7 @@ def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3):
         for t, trk in enumerate(trackers):
             iou_matrix[d, t] = iou(det, trk)
 
-    rows, cols = linear_sum_assignment(-iou_matrix)
+    rows, cols = linear_sum_assignment(-iou_matrix) # 1 - iou_matrix and add = 0 if < iou_thresh
     matched_indices = np.transpose(np.vstack((rows, cols)))
 
     unmatched_detections = []
@@ -209,12 +233,12 @@ class Sort(object):
         self.trackers = []
         self.frame_count = 0
 
-    def update(self, dets):
+    def update(self, dets, velocity=None):
         """
         Params:
           dets - a numpy array of detections in the format [[x1, y1, x2, y2, score], [x1, y1, x2, y2, score], ...]
         Requires: this method must be called once for each frame even with empty detections.
-        Returns the a similar array, where the last column is the object ID.
+        Returns a similar array, where the last column is the object ID.
 
         NOTE: The number of objects returned may differ from the number of detections provided.
         """
@@ -225,7 +249,7 @@ class Sort(object):
         ret = []
 
         for t, trk in enumerate(trks):
-            pos = self.trackers[t].predict()[0]
+            pos = self.trackers[t].predict(velocity)[0]
             trk[:] = [pos[0], pos[1], pos[2], pos[3], 0]
 
             if np.any(np.isnan(pos)):
@@ -247,15 +271,17 @@ class Sort(object):
 
         # create and initialise new trackers for unmatched detections
         for i in unmatched_dets:
-            trk = KalmanBoxTracker(dets[i, :])
+            trk = KalmanBoxTracker(dets[i, :], velocity)
             self.trackers.append(trk)
 
         i = len(self.trackers)
         for trk in reversed(self.trackers):
             d = trk.get_state()[0]
 
-            if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
+            print("T since update: {}, Hit streak: {}, Frame count: {}".format(trk.time_since_update, trk.max_hit_streak, self.frame_count))
+            if (trk.time_since_update <= self.max_age) and (trk.max_hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
                 # +1 as MOT benchmark requires positive
+                # ret.append(np.concatenate((d, [trk.id + 1], [trk.score])).reshape(1, -1))
                 ret.append(np.concatenate((d, [trk.id + 1])).reshape(1, -1))
 
             i -= 1
@@ -266,6 +292,7 @@ class Sort(object):
         if len(ret) > 0:
             return np.concatenate(ret)
 
+        # return np.empty((0, 6))
         return np.empty((0, 5))
 
 
