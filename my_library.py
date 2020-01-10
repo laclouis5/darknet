@@ -38,11 +38,23 @@ def optical_flow(image_1, image_2, prev_opt_flow=None):
         poly_sigma=1.2,
         flags=0)
 
-    return optical_flow
+    return optical_flow, image_2
 
-def mean_opt_flow(optical_flow):
+def mean_opt_flow(optical_flow, mask=None):
+        """
+        `mask` is a binary mask where locations where to compute optical_flow
+        ar marked as True.
+        """
+
         dx = optical_flow[..., 0]
         dy = optical_flow[..., 1]
+
+        temp_x = dx.sum() / dx.size
+        temp_y = dy.sum() / dy.size
+
+        if mask is not None:
+            dx = dx[mask]
+            dy = dy[mask]
 
         mean_dx = dx.sum() / dx.size
         mean_dy = dy.sum() / dy.size
