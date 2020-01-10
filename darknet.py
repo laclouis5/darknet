@@ -576,7 +576,7 @@ def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=
         * ...
     Takes as input a yolo detector network
 
-    Returns filtered detections using KalmanFilters and Optical Flow estimation
+    Returns filtered detections using KalmanFilters and Optical Flow estimation.
     """
     # Darknet Yolo model params
     model = network.weights
@@ -601,7 +601,6 @@ def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=
     # Main loop
     for image in images[1:]:
         # Yolo detections
-        print("IMAGE: {}".format(image))
         detections = performDetect(image, thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
         det_boxes = Parser.parse_yolo_darknet_detections(detections, image, img_size=image_size(image))
 
@@ -610,17 +609,12 @@ def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=
         opt_flow, past_image = optical_flow(past_image, current_image, opt_flow) # Not optimized
         egi = egi_mask(current_image)
         dx, dy = mean_opt_flow(opt_flow, ~egi)
-        print("OPT FLOW: ({}, {})".format(dx, dy))
 
         # Per label loop
         for label in labels:
             label_boxes = det_boxes.getBoundingBoxByClass(label)
-            print("DETECTIONS:")
-            [print(box.description(format=BBFormat.XYX2Y2)) for box in label_boxes]
             # Update tracker with detections and optical flow informations
             tracks = trackers[label].update(label_boxes.getDetectionBoxesAsNPArray(), (dx, dy))
-            print("TRACKS:")
-            [print(track) for track in tracks]
 
             # Save filtered detections
             all_boxes += [BoundingBox(image, label, *track[:4], CoordinatesType.Absolute, image_size(image), BBType.Detected, 1, BBFormat.XYX2Y2) for track in tracks]
