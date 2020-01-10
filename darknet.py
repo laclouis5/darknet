@@ -44,7 +44,7 @@ from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
 
-from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, mean_opt_flow, convert_to_grayscale
+from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, mean_opt_flow, convert_to_grayscale, egi_mask
 
 from BoxLibrary import *
 from sort import *
@@ -569,44 +569,61 @@ def performDetectOnFolder(network, directory, conf_thresh=0.25):
     return boxes
 
 def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=30, min_hits=3):
+    """
+    Takes as input a path to a folder of images in chronological order by name:
+        * t=0 -> im_01.jpg
+        * t=1 -> im_02.jpg
+        * ...
+    Takes as input a yolo detector network
+
+    Returns filtered detections using KalmanFilters and Optical Flow estimation
+    """
+    # Darknet Yolo model params
     model = network.weights
     cfg = network.cfg
     obj = network.meta
 
-    performDetect("", thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False, initOnly=True)
-
-    create_dir(save_dir)
-
+    # Retreive files in chronological order
     images = files_with_extension(directory, ".jpg")
     images.sort(key=os.path.getmtime)
 
+    # Network init
+    performDetect("", thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False, initOnly=True)
+
+    # Init various stuff
+    create_dir(save_dir)
     labels = get_classes(obj)
     trackers = {label: Sort(max_age, min_hits) for label in labels}
     all_boxes = BoundingBoxes()
-
     opt_flow = None
+    past_image = cv.imread(images[0])
 
-    for i, image in enumerate(images[1:]):
+    # Main loop
+    for image in images[1:]:
+        # Yolo detections
         print("IMAGE: {}".format(image))
         detections = performDetect(image, thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
-
-        opt_flow = optical_flow(cv.imread(images[i]), cv.imread(image), opt_flow) # Not optimized
-        dx, dy = mean_opt_flow(opt_flow)
-        print("OPT FLOW: ({}, {})".format(dx, dy))
-
         det_boxes = Parser.parse_yolo_darknet_detections(detections, image, img_size=image_size(image))
 
-        for label in ["maize", "stem_maize"]:
+        # Optical flow
+        current_image = cv.imread(image)
+        opt_flow, past_image = optical_flow(past_image, current_image, opt_flow) # Not optimized
+        egi = egi_mask(current_image)
+        dx, dy = mean_opt_flow(opt_flow, ~egi)
+        print("OPT FLOW: ({}, {})".format(dx, dy))
+
+        # Per label loop
+        for label in labels:
             label_boxes = det_boxes.getBoundingBoxByClass(label)
             print("DETECTIONS:")
             [print(box.description(format=BBFormat.XYX2Y2)) for box in label_boxes]
+            # Update tracker with detections and optical flow informations
             tracks = trackers[label].update(label_boxes.getDetectionBoxesAsNPArray(), (dx, dy))
             print("TRACKS:")
             [print(track) for track in tracks]
 
-            tracked_boxes = [BoundingBox(image, label, *track[:4], CoordinatesType.Absolute, image_size(image), BBType.Detected, 1, BBFormat.XYX2Y2) for track in tracks]
-
-            all_boxes += tracked_boxes
+            # Save filtered detections
+            all_boxes += [BoundingBox(image, label, *track[:4], CoordinatesType.Absolute, image_size(image), BBType.Detected, 1, BBFormat.XYX2Y2) for track in tracks]
 
     return all_boxes
 
@@ -1094,6 +1111,20 @@ def double_detector_folder(folder, yolo_1, yolo_2):
     for image in images:
         double_detector(image, yolo_1, yolo_2)
 
+def _test_optical_flow(folder):
+    images = files_with_extension(folder, ".jpg")
+    images.sort(key=os.path.getmtime)
+
+    opt_flow = None
+    first_image = cv.imread(images[0])
+
+    for image in images[1:]:
+        second_image = cv.imread(image)
+        opt_flow, first_image = optical_flow(first_image, second_image, opt_flow)
+        egi = egi_mask(second_image)
+        dx, dy = mean_opt_flow(opt_flow, egi)
+
+        print("Dx: {}, Dy: {}".format(dx, dy))
 
 if __name__ == "__main__":
     # image_path  = "data/val/"
@@ -1122,16 +1153,18 @@ if __name__ == "__main__":
     label_to_number = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
     number_to_label = {0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"}
 
+    _test_optical_flow(image_path)
+
     # dets = performDetectOnFolder(yolo, image_path, 0.20)
-    dets = performDetectOnFolderAndTrack(yolo, image_path, conf_thresh=0.2, min_hits=5)
-    gts = Parser.parse_yolo_gt_folder(image_path)
-    gts.mapLabels(number_to_label)
+    # dets = performDetectOnFolderAndTrack(yolo, image_path, conf_thresh=0.2, min_hits=5)
+    # gts = Parser.parse_yolo_gt_folder(image_path)
+    # gts.mapLabels(number_to_label)
 
     # Evaluator().printAPs(gts + dets)
     # Evaluator().printAPsByClass(gts + dets)
     # Evaluator().printAPsByClass(gts + dets, 20, EvaluationMethod.Distance)
 
-    dets.drawAll(save_dir="save/annotated_images/")
+    # dets.drawAll(save_dir="save/annotated_images/")
 
     # tracker = Sort(max_age=3, min_hits=1)
     # mult = 2
