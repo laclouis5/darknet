@@ -557,7 +557,6 @@ def performDetectOnFolder(network, directory, conf_thresh=0.25):
     cfg = network.cfg
     obj = network.meta
 
-    create_dir(save_dir)
     boxes = BoundingBoxes()
     images = files_with_extension(directory, ".jpg")
 
@@ -617,7 +616,8 @@ def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=
             tracks = trackers[label].update(label_boxes.getDetectionBoxesAsNPArray(), (dx, dy))
 
             # Save filtered detections
-            all_boxes += [BoundingBox(image, label, *track[:4], CoordinatesType.Absolute, image_size(image), BBType.Detected, 1, BBFormat.XYX2Y2) for track in tracks]
+            boxes = [BoundingBox(image, label, *track[:4], CoordinatesType.Absolute, image_size(image), BBType.Detected, 1, BBFormat.XYX2Y2) for track in tracks]
+            all_boxes += [box.cliped() for box in boxes if box.centerIsIn()]
 
     return all_boxes
 
@@ -808,7 +808,7 @@ def ImageGeneratorFromVideo(video_path, skip_frames=1, gray_scale=True, down_sca
 
             frame = frame[:, to_crop:-to_crop, :]
 
-        yield(ret, frame)
+        yield (ret, frame)
 
 def ImageGeneratorFromFolder(folder, sorted=False):
     '''
@@ -1106,6 +1106,9 @@ def double_detector_folder(folder, yolo_1, yolo_2):
         double_detector(image, yolo_1, yolo_2)
 
 def _test_optical_flow(folder):
+    """
+    Private test function.
+    """
     images = files_with_extension(folder, ".jpg")
     images.sort(key=os.path.getmtime)
 
@@ -1147,18 +1150,18 @@ if __name__ == "__main__":
     label_to_number = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
     number_to_label = {0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"}
 
-    _test_optical_flow(image_path)
+    # _test_optical_flow(image_path)
 
-    # dets = performDetectOnFolder(yolo, image_path, 0.20)
-    # dets = performDetectOnFolderAndTrack(yolo, image_path, conf_thresh=0.2, min_hits=5)
-    # gts = Parser.parse_yolo_gt_folder(image_path)
-    # gts.mapLabels(number_to_label)
+    dets = performDetectOnFolder(yolo, image_path, 0.2)
+    # dets = performDetectOnFolderAndTrack(yolo, image_path, conf_thresh=0.2, min_hits=3)
+    gts = Parser.parse_yolo_gt_folder(image_path)
+    gts.mapLabels(number_to_label)
 
     # Evaluator().printAPs(gts + dets)
-    # Evaluator().printAPsByClass(gts + dets)
-    # Evaluator().printAPsByClass(gts + dets, 20, EvaluationMethod.Distance)
+    Evaluator().printAPsByClass(gts + dets)
+    Evaluator().printAPsByClass(gts + dets, 40, EvaluationMethod.Distance)
 
-    # dets.drawAll(save_dir="save/annotated_images/")
+    # (dets + gts).drawAll(save_dir="save/tracked/")
 
     # tracker = Sort(max_age=3, min_hits=1)
     # mult = 2
