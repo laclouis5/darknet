@@ -1,182 +1,108 @@
 import os
 import sys
-from collections import Counter
 
 import matplotlib.pyplot as plt
 import numpy as np
-from math import sqrt
 
 from .BoundingBox import BoundingBox
 from .BoundingBoxes import BoundingBoxes
 from .utils import *
 
-
 class Evaluator:
-
     cocoThresholds = [thresh / 100 for thresh in range(50, 100, 5)]
 
-    def GetPascalVOCMetrics(self,
-                            boundingboxes,
-                            thresh=0.5,
-                            evalMetric=EvaluationMethod.IoU,
-                            method=MethodAveragePrecision.EveryPointInterpolation):
-        """Get the metrics used by the VOC Pascal 2012 challenge.
-        Get
-        Args:
-            boundingboxes: Object of the class BoundingBoxes representing ground truth and detected
-            bounding boxes;
-            IOUThreshold: IOU threshold indicating which detections will be considered TP or FP
-            (default value = 0.5);
-            method (default = EveryPointInterpolation): It can be calculated as the implementation
-            in the official PASCAL VOC toolkit (EveryPointInterpolation), or applying the 11-point
-            interpolatio as described in the paper "The PASCAL Visual Object Classes(VOC) Challenge"
-            or EveryPointInterpolation"  (ElevenPointInterpolation);
-        Returns:
-            A list of dictionaries. Each dictionary contains information and metrics of each class.
-            The keys of each dictionary are:
-            dict['class']: class representing the current dictionary;
-            dict['precision']: array with the precision values;
-            dict['recall']: array with the recall values;
-            dict['AP']: average precision;
-            dict['interpolated precision']: interpolated precision values;
-            dict['interpolated recall']: interpolated recall values;
-            dict['total positives']: total number of ground truth positives;
-            dict['total TP']: total number of True Positive detections;
-            dict['total FP']: total number of False Negative detections;
-        """
-        ret = []  # list containing metrics (precision, recall, average precision) of each class
-        # List with all ground truths (Ex: [imageName,class,confidence=1, (bb coordinates XYX2Y2)])
-        groundTruths = []
-        # List with all detections (Ex: [imageName,class,confidence,(bb coordinates XYX2Y2)])
-        detections = []
-        # Get all classes
-        classes = []
-        # Loop through all bounding boxes and separate them into GTs and detections
-        for bb in boundingboxes:
-            # [imageName, class, confidence, (bb coordinates XYX2Y2)]
-            if bb.getBBType() == BBType.GroundTruth:
-                groundTruths.append([
-                    bb.getImageName(),
-                    bb.getClassId(), 1,
-                    bb.getAbsoluteBoundingBox(BBFormat.XYX2Y2)
-                ])
-            else:
-                detections.append([
-                    bb.getImageName(),
-                    bb.getClassId(),
-                    bb.getConfidence(),
-                    bb.getAbsoluteBoundingBox(BBFormat.XYX2Y2)
-                ])
-            # get class
-            if bb.getClassId() not in classes:
-                classes.append(bb.getClassId())
-        classes = sorted(classes)
-        # Precision x Recall is obtained individually by each class
-        # Loop through by classes
-        for c in classes:
-            # Get only detection of class c
-            dects = []
-            [dects.append(d) for d in detections if d[1] == c]
-            # Get only ground truths of class c
-            gts = []
-            [gts.append(g) for g in groundTruths if g[1] == c]
-            npos = len(gts)
-            # sort detections by decreasing confidence
-            dects = sorted(dects, key=lambda conf: conf[2], reverse=True)
-            TP = np.zeros(len(dects))
-            FP = np.zeros(len(dects))
-            # create dictionary with amount of gts for each image
-            det = Counter([cc[0] for cc in gts])
-            for key, val in det.items():
-                det[key] = np.zeros(val)
-            # print("Evaluating class: %s (%d detections)" % (str(c), len(dects)))
-            # Loop through detections
-            for (d, dd) in enumerate(dects):
-                # print('dect %s => %s' % (dects[d][0], dects[d][3],))
-                # Find ground truth image
-                gt = [gt for gt in gts if gt[0] == dd[0]]
+    def GetPascalVOCMetrics(self, boxes, thresh=0.5, method=EvaluationMethod.IoU):
+        ret = []
+        boxesByLabels = dictGrouping(boxes, key=lambda box: box.getClassId())
+        labels = sorted(boxesByLabels.keys())
 
-                if evalMetric == EvaluationMethod.IoU:
-                    iouMax = sys.float_info.min
-                    for j in range(len(gt)):
-                        # print('Ground truth gt => %s' % (gt[j][3],))
-                        iou = Evaluator.iou(dd[3], gt[j][3])
-                        if iou > iouMax:
-                            iouMax = iou
+        for label in labels:
+            boxesByDetectionMode = dictGrouping(
+                boxesByLabels[label],
+                key=lambda box: box.getBBType()
+            )
+            groundTruths = dictGrouping(
+                boxesByDetectionMode[BBType.GroundTruth],
+                key=lambda box: box.getImageName()
+            )
+            detections = sorted(
+                boxesByDetectionMode[BBType.Detected],
+                key=lambda box: box.getConfidence(),
+                reverse=True
+            )
+
+            TP = np.repeat(False, len(detections))
+            npos = len(boxesByDetectionMode[BBType.GroundTruth])
+            visited = {k: np.repeat(False, len(v))
+                for k, v in groundTruths.items()
+            }
+
+            for (i, detection) in enumerate(detections):
+                imageName = detection.getImageName()
+                associatedGts = groundTruths[imageName]
+
+                if method == EvaluationMethod.IoU:
+                    maxIoU = 0
+
+                    for j, gt in enumerate(associatedGts):
+                        iou = detection.iou(gt)
+
+                        if iou > maxIoU:
+                            maxIoU = iou
                             jmax = j
-                    # Assign detection as true positive/don't care/false positive
-                    if iouMax >= thresh:
-                        if det[dd[0]][jmax] == 0:
-                            TP[d] = 1  # count as true positive
-                            det[dd[0]][jmax] = 1  # flag as already 'seen'
-                            # print("TP")
-                        else:
-                            FP[d] = 1  # count as false positive
-                            # print("FP")
-                    # - A detected "cat" is overlaped with a GT "cat" with IOU >= thresh.
-                    else:
-                        FP[d] = 1  # count as false positive
-                        # print("FP")
-                elif evalMetric == EvaluationMethod.Distance:
-                    distMin = sys.float_info.max
-                    for j in range(len(gt)):
-                        dist = Evaluator.distance(dd[3], gt[j][3])
-                        if dist < distMin:
-                            distMin = dist
-                            jmin = j
-                    if distMin <= thresh:
-                        if det[dd[0]][jmin] == 0:
-                            TP[d] = 1
-                            det[dd[0]][jmin] = 1
-                        else:
-                            FP[d] = 1
-                    else:
-                        FP[d] = 1
-                else:
-                    raise IOError("evalMetric should be of type EvaluationMethod")
 
-            # compute precision, recall and average precision
-            acc_FP = np.cumsum(FP)
+                    if maxIoU > thresh and not visited[imageName][jmax]:
+                        visited[imageName][jmax] = True
+                        TP[i] = True
+
+                if method == EvaluationMethod.Distance:
+                    minDist = distMin = sys.float_info.max
+
+                    for (j, gt) in enumerate(associatedGts):
+                        dist = detection.distance(gt)
+
+                        if dist < minDist:
+                            minDist = dist
+                            jmin = j
+
+                    if minDist < thresh and not visited[imageName][jmin]:
+                        visited[imageName][jmin] = True
+                        TP[i] = True
+
             acc_TP = np.cumsum(TP)
+            acc_FP = np.cumsum([not tp for tp in TP])
             rec = acc_TP / npos
             prec = np.divide(acc_TP, (acc_FP + acc_TP))
-            # Depending on the method, call the right implementation
-            if method == MethodAveragePrecision.EveryPointInterpolation:
-                [ap, mpre, mrec, ii] = Evaluator.CalculateAveragePrecision(rec, prec)
-            else:
-                [ap, mpre, mrec, _] = Evaluator.ElevenPointInterpolatedAP(rec, prec)
-            # add class result in the dictionary to be returned
-            r = {
-                'class': c,
+
+            [ap, mpre, mrec, ii] = Evaluator.CalculateAveragePrecision(rec, prec)
+
+            ret.append({
+                'class': label,
                 'precision': prec,
                 'recall': rec,
                 'AP': ap,
                 'interpolated precision': mpre,
                 'interpolated recall': mrec,
                 'total positives': npos,
-                'total TP': np.sum(TP),
-                'total FP': np.sum(FP)
-            }
-            ret.append(r)
+                'total TP': acc_TP[-1],
+                'total FP': acc_FP[-1]
+            })
+
         return ret
 
-
-    def getCocoMetrics(self, boundingBoxes,):
+    def getCocoMetrics(self, boundingBoxes):
         return [self.GetPascalVOCMetrics(boundingBoxes, thresh)
             for thresh in self.cocoThresholds]
-
 
     def getAP(self, boundingBoxes, thresh=0.5, method=EvaluationMethod.IoU):
         AP = [res["AP"]
             for res in self.GetPascalVOCMetrics(boundingBoxes, thresh, method)]
         return sum(AP) / len(AP) if AP else 0.0
 
-
     def getCocoAP(self, boundingBoxes):
         AP = [self.getAP(boundingBoxes, thresh)
             for thresh in self.cocoThresholds]
         return sum(AP) / len(AP) if AP else 0.0
-
 
     def printAPs(self, boxes):
         APs = [self.getAP(boxes, thresh)
@@ -186,7 +112,6 @@ class Evaluator:
         print("mAP@.50: {:.2%}".format(APs[0]))
         print("mAP@.75: {:.2%}".format(APs[5]))
         print("coco AP: {:.2%}".format(cocoAP))
-
 
     def printAPsByClass(self, boxes, thresh=0.5, method=EvaluationMethod.IoU):
         if thresh is not None:
@@ -200,11 +125,9 @@ class Evaluator:
                 FP = metric["total FP"]
                 print("  {:<13} - AP: {:.2%}  npos: {}  TP: {}  FP: {}".format(label, AP, totalPositive, TP, FP))
 
-
     def PlotPrecisionRecallCurve(self,
                                  boundingBoxes,
                                  IOUThreshold=0.5,
-                                 method=MethodAveragePrecision.EveryPointInterpolation,
                                  showAP=False,
                                  showInterpolatedPrecision=False,
                                  savePath=None,
@@ -240,7 +163,7 @@ class Evaluator:
             dict['total TP']: total number of True Positive detections;
             dict['total FP']: total number of False Negative detections;
         """
-        results = self.GetPascalVOCMetrics(boundingBoxes, IOUThreshold, method)
+        results = self.GetPascalVOCMetrics(boundingBoxes, IOUThreshold)
         result = None
         # Each resut represents a class
         for result in results:
@@ -285,57 +208,7 @@ class Evaluator:
                 plt.title('Precision x Recall curve \nClass: %d' % classId)
             plt.legend(shadow=True)
             plt.grid()
-            ############################################################
-            # Uncomment the following block to create plot with points #
-            ############################################################
-            # plt.plot(recall, precision, 'bo')
-            # labels = ['R', 'Y', 'J', 'A', 'U', 'C', 'M', 'F', 'D', 'B', 'H', 'P', 'E', 'X', 'N', 'T',
-            # 'K', 'Q', 'V', 'I', 'L', 'S', 'G', 'O']
-            # dicPosition = {}
-            # dicPosition['left_zero'] = (-30,0)
-            # dicPosition['left_zero_slight'] = (-30,-10)
-            # dicPosition['right_zero'] = (30,0)
-            # dicPosition['left_up'] = (-30,20)
-            # dicPosition['left_down'] = (-30,-25)
-            # dicPosition['right_up'] = (20,20)
-            # dicPosition['right_down'] = (20,-20)
-            # dicPosition['up_zero'] = (0,30)
-            # dicPosition['up_right'] = (0,30)
-            # dicPosition['left_zero_long'] = (-60,-2)
-            # dicPosition['down_zero'] = (-2,-30)
-            # vecPositions = [
-            #     dicPosition['left_down'],
-            #     dicPosition['left_zero'],
-            #     dicPosition['right_zero'],
-            #     dicPosition['right_zero'],  #'R', 'Y', 'J', 'A',
-            #     dicPosition['left_up'],
-            #     dicPosition['left_up'],
-            #     dicPosition['right_up'],
-            #     dicPosition['left_up'],  # 'U', 'C', 'M', 'F',
-            #     dicPosition['left_zero'],
-            #     dicPosition['right_up'],
-            #     dicPosition['right_down'],
-            #     dicPosition['down_zero'],  #'D', 'B', 'H', 'P'
-            #     dicPosition['left_up'],
-            #     dicPosition['up_zero'],
-            #     dicPosition['right_up'],
-            #     dicPosition['left_up'],  # 'E', 'X', 'N', 'T',
-            #     dicPosition['left_zero'],
-            #     dicPosition['right_zero'],
-            #     dicPosition['left_zero_long'],
-            #     dicPosition['left_zero_slight'],  # 'K', 'Q', 'V', 'I',
-            #     dicPosition['right_down'],
-            #     dicPosition['left_down'],
-            #     dicPosition['right_up'],
-            #     dicPosition['down_zero']
-            # ]  # 'L', 'S', 'G', 'O'
-            # for idx in range(len(labels)):
-            #     box = dict(boxstyle='round,pad=.5',facecolor='yellow',alpha=0.5)
-            #     plt.annotate(labels[idx],
-            #                 xy=(recall[idx],precision[idx]), xycoords='data',
-            #                 xytext=vecPositions[idx], textcoords='offset points',
-            #                 arrowprops=dict(arrowstyle="->", connectionstyle="arc3"),
-            #                 bbox=box)
+
             if savePath is not None:
                 plt.savefig(os.path.join(savePath, classId + '.png'))
             if showGraphic is True:
@@ -365,133 +238,3 @@ class Evaluator:
             ap = ap + np.sum((mrec[i] - mrec[i - 1]) * mpre[i])
         # return [ap, mpre[1:len(mpre)-1], mrec[1:len(mpre)-1], ii]
         return [ap, mpre[0:len(mpre) - 1], mrec[0:len(mpre) - 1], ii]
-
-    @staticmethod
-    # 11-point interpolated average precision
-    def ElevenPointInterpolatedAP(rec, prec):
-        # def CalculateAveragePrecision2(rec, prec):
-        mrec = []
-        # mrec.append(0)
-        [mrec.append(e) for e in rec]
-        # mrec.append(1)
-        mpre = []
-        # mpre.append(0)
-        [mpre.append(e) for e in prec]
-        # mpre.append(0)
-        recallValues = np.linspace(0, 1, 11)
-        recallValues = list(recallValues[::-1])
-        rhoInterp = []
-        recallValid = []
-        # For each recallValues (0, 0.1, 0.2, ... , 1)
-        for r in recallValues:
-            # Obtain all recall values higher or equal than r
-            argGreaterRecalls = np.argwhere(mrec[:] >= r)
-            pmax = 0
-            # If there are recalls above r
-            if argGreaterRecalls.size != 0:
-                pmax = max(mpre[argGreaterRecalls.min():])
-            recallValid.append(r)
-            rhoInterp.append(pmax)
-        # By definition AP = sum(max(precision whose recall is above r))/11
-        ap = sum(rhoInterp) / 11
-        # Generating values for the plot
-        rvals = []
-        rvals.append(recallValid[0])
-        [rvals.append(e) for e in recallValid]
-        rvals.append(0)
-        pvals = []
-        pvals.append(0)
-        [pvals.append(e) for e in rhoInterp]
-        pvals.append(0)
-        # rhoInterp = rhoInterp[::-1]
-        cc = []
-        for i in range(len(rvals)):
-            p = (rvals[i], pvals[i - 1])
-            if p not in cc:
-                cc.append(p)
-            p = (rvals[i], pvals[i])
-            if p not in cc:
-                cc.append(p)
-        recallValues = [i[0] for i in cc]
-        rhoInterp = [i[1] for i in cc]
-        return [ap, rhoInterp, recallValues, None]
-
-    # For each detections, calculate IOU with reference
-    @staticmethod
-    def _getAllIOUs(reference, detections):
-        ret = []
-        bbReference = reference.getAbsoluteBoundingBox(BBFormat.XYX2Y2)
-        # img = np.zeros((200,200,3), np.uint8)
-        for d in detections:
-            bb = d.getAbsoluteBoundingBox(BBFormat.XYX2Y2)
-            iou = Evaluator.iou(bbReference, bb)
-            # Show blank image with the bounding boxes
-            # img = add_bb_into_image(img, d, color=(255,0,0), thickness=2, label=None)
-            # img = add_bb_into_image(img, reference, color=(0,255,0), thickness=2, label=None)
-            ret.append((iou, reference, d))  # iou, reference, detection
-        # cv2.imshow("comparing",img)
-        # cv2.waitKey(0)
-        # cv2.destroyWindow("comparing")
-        return sorted(ret, key=lambda i: i[0], reverse=True)  # sort by iou (from highest to lowest)
-
-    @staticmethod
-    def iou(boxA, boxB):
-        # if boxes dont intersect
-        if Evaluator._boxesIntersect(boxA, boxB) is False:
-            return 0
-        interArea = Evaluator._getIntersectionArea(boxA, boxB)
-        union = Evaluator._getUnionAreas(boxA, boxB, interArea=interArea)
-        # intersection over union
-        iou = interArea / union
-        assert iou >= 0
-        return iou
-
-    @staticmethod
-    # Format [xMin, yMin, xMax, yMax]
-    def distance(boxA, boxB):
-        cxa = (boxA[2] + boxA[0]) / 2
-        cya = (boxA[3] + boxA[1]) / 2
-        cxb = (boxB[2] + boxB[0]) / 2
-        cyb = (boxB[3] + boxB[1]) / 2
-
-        vx = cxb - cxa
-        vy = cyb - cyb
-
-        dist = sqrt(pow(vx, 2) + pow(vy, 2))
-
-        return dist
-
-    # boxA = (Ax1,Ay1,Ax2,Ay2)
-    # boxB = (Bx1,By1,Bx2,By2)
-    @staticmethod
-    def _boxesIntersect(boxA, boxB):
-        if boxA[0] > boxB[2]:
-            return False  # boxA is right of boxB
-        if boxB[0] > boxA[2]:
-            return False  # boxA is left of boxB
-        if boxA[3] < boxB[1]:
-            return False  # boxA is above boxB
-        if boxA[1] > boxB[3]:
-            return False  # boxA is below boxB
-        return True
-
-    @staticmethod
-    def _getIntersectionArea(boxA, boxB):
-        xA = max(boxA[0], boxB[0])
-        yA = max(boxA[1], boxB[1])
-        xB = min(boxA[2], boxB[2])
-        yB = min(boxA[3], boxB[3])
-        # intersection area
-        return (xB - xA + 1) * (yB - yA + 1)
-
-    @staticmethod
-    def _getUnionAreas(boxA, boxB, interArea=None):
-        area_A = Evaluator._getArea(boxA)
-        area_B = Evaluator._getArea(boxB)
-        if interArea is None:
-            interArea = Evaluator._getIntersectionArea(boxA, boxB)
-        return float(area_A + area_B - interArea)
-
-    @staticmethod
-    def _getArea(box):
-        return (box[2] - box[0] + 1) * (box[3] - box[1] + 1)
