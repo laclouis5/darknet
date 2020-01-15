@@ -278,7 +278,8 @@ class Sort(object):
         for trk in reversed(self.trackers):
             d = trk.get_state()[0]
 
-            print("T since update: {}, Hit streak: {}, Frame count: {}".format(trk.time_since_update, trk.max_hit_streak, self.frame_count))
+            # print("T since update: {}, Hit streak: {}, Frame count: {}".format(trk.time_since_update, trk.max_hit_streak, self.frame_count))
+            
             if (trk.time_since_update <= self.max_age) and (trk.max_hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
                 # +1 as MOT benchmark requires positive
                 # ret.append(np.concatenate((d, [trk.id + 1], [trk.score])).reshape(1, -1))
