@@ -1,6 +1,7 @@
 from enum import Enum
 import os
 import PIL
+from collections import defaultdict
 
 class MethodAveragePrecision(Enum):
     """
@@ -97,3 +98,8 @@ def create_dir(directory):
 
 def image_size(image):
     return PIL.Image.open(image).size
+
+def dictGrouping(array, key):
+    dict = defaultdict(list)
+    [dict[key(element)].append(element) for element in array]
+    return dict
