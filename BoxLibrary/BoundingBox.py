@@ -1,4 +1,5 @@
 from .utils import *
+from math import sqrt
 
 class BoundingBox:
     def __init__(self,
@@ -105,7 +106,7 @@ class BoundingBox:
             return (x, y, self._w, self._h)
 
     def getRelativeBoundingBox(self, imgSize=None):
-        if imgSize is None and self._width_img is None and self._height_img is None:
+        if imgSize is None and (self._width_img is None or self._height_img) is None:
             raise IOError(
                 'Parameter \'imgSize\' is required. It is necessary to inform the image size.')
         if imgSize is not None:
@@ -139,6 +140,100 @@ class BoundingBox:
     def getArea(self):
         area = (self._w + 1) * (self._h + 1)
         return area
+
+    def clip(self, size=None):
+        if (self._width_img is None or self._height_img is None) and size is None:
+            raise IOError('Parameter \'size\' is required. It is necessary to inform the size.')
+
+        def clip(box, size):
+            (xmin, ymin, xmax, ymax) = box.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
+            if xmin < 0:
+                xmin = 0
+            if xmax >= size[0]:
+                xmax = size[0] - 1
+            if ymin < 0:
+                ymin = 0
+            if ymax >= size[1]:
+                ymax = size[1] - 1
+
+            box._x = xmin
+            box._y = ymin
+            box._x2 = xmax
+            box._y2 = ymax
+            box._w = xmax - xmin
+            box._h = ymax - ymin
+
+        if size is not None:
+            clip(self, size)
+        else:
+            clip(self, self.getImageSize())
+
+    def cliped(self, size=None):
+        box = self.copy()
+        box.clip(size)
+        return box
+
+    def centerIsIn(self, rect=None):
+        if (self._width_img is None or self._height_img is None) and rect is None:
+            raise IOError('Parameter \'size\' is required. It is necessary to inform the size.')
+
+        def centerIsIn(x, y, rect):
+            if x < rect[0]: return False
+            if x > rect[2]: return False
+            if y < rect[1]: return False
+            if y > rect[3]: return False
+            return True
+
+        (x, y, _, _) = self.getAbsoluteBoundingBox(format=BBFormat.XYC)
+
+        if rect is not None:
+            return centerIsIn(x, y, rect)
+        else:
+            (w, h) = self.getImageSize()
+            rect = [0, 0, w, h]
+            return centerIsIn(x, y, rect)
+
+    def iou(self, other):
+        boxA = self.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
+        boxB = other.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
+
+        if not self.intersects(other): return 0
+
+        xA = max(boxA[0], boxB[0])
+        yA = max(boxA[1], boxB[1])
+        xB = min(boxA[2], boxB[2])
+        yB = min(boxA[3], boxB[3])
+
+        intersection = (xB - xA + 1) * (yB - yA + 1)
+
+        areaA = self.getArea()
+        areaB = other.getArea()
+
+        union = areaA + areaB - intersection
+
+        return intersection / union
+
+    def intersects(self, other):
+        boxA = self.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
+        boxB = other.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
+
+        return boxA[0] < boxB[2] and boxB[0] < boxA[2] and boxA[3] > boxB[1]  and boxB[3] > boxA[1]
+
+    def distance(self, other):
+        boxA = self.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
+        boxB = other.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
+
+        cxa = (boxA[2] + boxA[0]) / 2
+        cya = (boxA[3] + boxA[1]) / 2
+        cxb = (boxB[2] + boxB[0]) / 2
+        cyb = (boxB[3] + boxB[1]) / 2
+
+        vx = cxb - cxa
+        vy = cyb - cyb
+
+        dist = sqrt(pow(vx, 2) + pow(vy, 2))
+
+        return dist
 
     def mapLabel(self, mapping):
         mapping = {str(key): value for (key, value) in mapping.items()}
@@ -204,38 +299,16 @@ class BoundingBox:
         return image
 
     @staticmethod
-    def compare(det1, det2):
-        det1BB = det1.getAbsoluteBoundingBox()
-        det1ImgSize = det1.getImageSize()
-        det2BB = det2.getAbsoluteBoundingBox()
-        det2ImgSize = det2.getImageSize()
-
-        if det1.getClassId() == det2.getClassId() and \
-           det1.classConfidence == det2.classConfidenc() and \
-           det1BB[0] == det2BB[0] and \
-           det1BB[1] == det2BB[1] and \
-           det1BB[2] == det2BB[2] and \
-           det1BB[3] == det2BB[3] and \
-           det1ImgSize[0] == det1ImgSize[0] and \
-           det2ImgSize[1] == det2ImgSize[1]:
-           return True
-
-        return False
-
-
-    @staticmethod
-    def clone(boundingBox):
-        absBB = boundingBox.getAbsoluteBoundingBox(format=BBFormat.XYWH)
-        newBoundingBox = BoundingBox(
-            boundingBox.getImageName(),
-            boundingBox.getClassId(),
-            absBB[0],
-            absBB[1],
-            absBB[2],
-            absBB[3],
-            typeCoordinates=boundingBox.getCoordinatesType(),
-            imgSize=boundingBox.getImageSize(),
-            bbType=boundingBox.getBBType(),
-            classConfidence=boundingBox.getConfidence(),
+    def copy(self):
+        return BoundingBox(
+            self._imageName,
+            self._classId,
+            self._x,
+            self._y,
+            self._w,
+            self._h,
+            typeCoordinates=self._typeCoordinates,
+            imgSize=self.getImageSize(),
+            bbType=self._bbType,
+            classConfidence=self._classConfidence,
             format=BBFormat.XYWH)
-        return newBoundingBox
