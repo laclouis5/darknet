@@ -12,6 +12,11 @@ void free_sublayer(layer *l)
 
 void free_layer(layer l)
 {
+    free_layer_custom(l, 0);
+}
+
+void free_layer_custom(layer l, int keep_cudnn_desc)
+{
     if (l.share_layer != NULL) return;    // don't free shared layers
     if (l.antialiasing) {
         free_sublayer(l.input_layer);
@@ -55,10 +60,13 @@ void free_layer(layer l)
         return;
     }
     if (l.mask)               free(l.mask);
+    if (l.classes_multipliers)free(l.classes_multipliers);
     if (l.cweights)           free(l.cweights);
     if (l.indexes)            free(l.indexes);
     if (l.input_layers)       free(l.input_layers);
     if (l.input_sizes)        free(l.input_sizes);
+    if (l.layers_output)      free(l.layers_output);
+    if (l.layers_delta)       free(l.layers_delta);
     if (l.map)                free(l.map);
     if (l.rand)               free(l.rand);
     if (l.cost)               free(l.cost);
@@ -167,6 +175,7 @@ void free_layer(layer l)
 
     if (l.weights_gpu)             cuda_free(l.weights_gpu), l.weights_gpu = NULL;
     if (l.weight_updates_gpu)      cuda_free(l.weight_updates_gpu), l.weight_updates_gpu = NULL;
+    if (l.weight_deform_gpu)       cuda_free(l.weight_deform_gpu), l.weight_deform_gpu = NULL;
     if (l.weights_gpu16)           cuda_free(l.weights_gpu16), l.weights_gpu16 = NULL;
     if (l.weight_updates_gpu16)    cuda_free(l.weight_updates_gpu16), l.weight_updates_gpu16 = NULL;
     if (l.biases_gpu)              cuda_free(l.biases_gpu), l.biases_gpu = NULL;
@@ -183,6 +192,9 @@ void free_layer(layer l)
     if (l.rand_gpu)                cuda_free(l.rand_gpu);
     if (l.squared_gpu)             cuda_free(l.squared_gpu);
     if (l.norms_gpu)               cuda_free(l.norms_gpu);
+    if (l.input_sizes_gpu)         cuda_free((float*)l.input_sizes_gpu);
+    if (l.layers_output_gpu)       cuda_free((float*)l.layers_output_gpu);
+    if (l.layers_delta_gpu)        cuda_free((float*)l.layers_delta_gpu);
 
     // CONV-LSTM
     if (l.f_gpu)                   cuda_free(l.f_gpu);
@@ -203,31 +215,33 @@ void free_layer(layer l)
     if (l.last_prev_state_gpu)     cuda_free(l.last_prev_state_gpu);
     if (l.last_prev_cell_gpu)      cuda_free(l.last_prev_cell_gpu);
     if (l.cell_gpu)                cuda_free(l.cell_gpu);
-#ifdef CUDNN_DISABLED   // shouldn't be used for -map
-    if (l.srcTensorDesc) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.srcTensorDesc));
-    if (l.dstTensorDesc) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.dstTensorDesc));
-    if (l.srcTensorDesc16) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.srcTensorDesc16));
-    if (l.dstTensorDesc16) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.dstTensorDesc16));
-    if (l.dsrcTensorDesc) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.dsrcTensorDesc));
-    if (l.ddstTensorDesc) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.ddstTensorDesc));
-    if (l.dsrcTensorDesc16) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.dsrcTensorDesc16));
-    if (l.ddstTensorDesc16) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.ddstTensorDesc16));
-    if (l.normTensorDesc) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.normTensorDesc));
-    if (l.normDstTensorDesc) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.normDstTensorDesc));
-    if (l.normDstTensorDescF16) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.normDstTensorDescF16));
+#ifdef CUDNN   // shouldn't be used for -map
+    if (!keep_cudnn_desc) {
+        if (l.srcTensorDesc) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.srcTensorDesc));
+        if (l.dstTensorDesc) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.dstTensorDesc));
+        if (l.srcTensorDesc16) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.srcTensorDesc16));
+        if (l.dstTensorDesc16) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.dstTensorDesc16));
+        if (l.dsrcTensorDesc) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.dsrcTensorDesc));
+        if (l.ddstTensorDesc) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.ddstTensorDesc));
+        if (l.dsrcTensorDesc16) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.dsrcTensorDesc16));
+        if (l.ddstTensorDesc16) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.ddstTensorDesc16));
+        if (l.normTensorDesc) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.normTensorDesc));
+        if (l.normDstTensorDesc) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.normDstTensorDesc));
+        if (l.normDstTensorDescF16) CHECK_CUDNN(cudnnDestroyTensorDescriptor(l.normDstTensorDescF16));
 
-    if (l.weightDesc) CHECK_CUDNN(cudnnDestroyFilterDescriptor(l.weightDesc));
-    if (l.weightDesc16) CHECK_CUDNN(cudnnDestroyFilterDescriptor(l.weightDesc16));
-    if (l.dweightDesc) CHECK_CUDNN(cudnnDestroyFilterDescriptor(l.dweightDesc));
-    if (l.dweightDesc16) CHECK_CUDNN(cudnnDestroyFilterDescriptor(l.dweightDesc16));
+        if (l.weightDesc) CHECK_CUDNN(cudnnDestroyFilterDescriptor(l.weightDesc));
+        if (l.weightDesc16) CHECK_CUDNN(cudnnDestroyFilterDescriptor(l.weightDesc16));
+        if (l.dweightDesc) CHECK_CUDNN(cudnnDestroyFilterDescriptor(l.dweightDesc));
+        if (l.dweightDesc16) CHECK_CUDNN(cudnnDestroyFilterDescriptor(l.dweightDesc16));
 
-    if (l.convDesc) CHECK_CUDNN(cudnnDestroyConvolutionDescriptor(l.convDesc));
+        if (l.convDesc) CHECK_CUDNN(cudnnDestroyConvolutionDescriptor(l.convDesc));
 
-    if (l.poolingDesc) CHECK_CUDNN(cudnnDestroyPoolingDescriptor(l.poolingDesc));
+        if (l.poolingDesc) CHECK_CUDNN(cudnnDestroyPoolingDescriptor(l.poolingDesc));
 
-    //cudnnConvolutionFwdAlgo_t fw_algo, fw_algo16;
-    //cudnnConvolutionBwdDataAlgo_t bd_algo, bd_algo16;
-    //cudnnConvolutionBwdFilterAlgo_t bf_algo, bf_algo16;
+        //cudnnConvolutionFwdAlgo_t fw_algo, fw_algo16;
+        //cudnnConvolutionBwdDataAlgo_t bd_algo, bd_algo16;
+        //cudnnConvolutionBwdFilterAlgo_t bf_algo, bf_algo16;
+    }
 #endif  // CUDNN
 
 #endif  // GPU

@@ -1,4 +1,5 @@
 #include "image_opencv.h"
+#include <iostream>
 
 #ifdef OPENCV
 #include "utils.h"
@@ -8,7 +9,6 @@
 #include <cmath>
 #include <string>
 #include <vector>
-#include <iostream>
 #include <fstream>
 #include <algorithm>
 
@@ -605,8 +605,9 @@ extern "C" void release_capture(cap_cv* cap)
 // ----------------------------------------
 
 extern "C" mat_cv* get_capture_frame_cv(cap_cv *cap) {
-    cv::Mat *mat = new cv::Mat();
+    cv::Mat *mat = NULL;
     try {
+        mat = new cv::Mat();
         if (cap) {
             cv::VideoCapture &cpp_cap = *(cv::VideoCapture *)cap;
             if (cpp_cap.isOpened())
@@ -763,6 +764,7 @@ extern "C" image get_image_from_stream_resize(cap_cv *cap, int w, int h, int c, 
     if (once) {
         once = 0;
         do {
+            if (src) delete src;
             src = (cv::Mat*)get_capture_frame_cv(cap);
             if (!src) return make_empty_image(0, 0, 0);
         } while (src->cols < 1 || src->rows < 1 || src->channels() < 1);
@@ -794,6 +796,7 @@ extern "C" image get_image_from_stream_letterbox(cap_cv *cap, int w, int h, int 
     if (once) {
         once = 0;
         do {
+            if (src) delete src;
             src = (cv::Mat*)get_capture_frame_cv(cap);
             if (!src) return make_empty_image(0, 0, 0);
         } while (src->cols < 1 || src->rows < 1 || src->channels() < 1);
@@ -881,12 +884,13 @@ extern "C" void draw_detections_cv_v3(mat_cv* mat, detection *dets, int num, flo
                         char buff[10];
                         sprintf(buff, " (%2.0f%%)", dets[i].prob[j] * 100);
                         strcat(labelstr, buff);
+                        printf("%s: %.0f%% ", names[j], dets[i].prob[j] * 100);
                     }
                     else {
                         strcat(labelstr, ", ");
                         strcat(labelstr, names[j]);
+                        printf(", %s: %.0f%% ", names[j], dets[i].prob[j] * 100);
                     }
-                    printf("%s: %.0f%% ", names[j], dets[i].prob[j] * 100);
                 }
             }
             if (class_id >= 0) {
@@ -999,7 +1003,7 @@ extern "C" void draw_detections_cv_v3(mat_cv* mat, detection *dets, int num, flo
 // ====================================================================
 // Draw Loss & Accuracy chart
 // ====================================================================
-extern "C" mat_cv* draw_train_chart(float max_img_loss, int max_batches, int number_of_lines, int img_size, int dont_show)
+extern "C" mat_cv* draw_train_chart(char *windows_name, float max_img_loss, int max_batches, int number_of_lines, int img_size, int dont_show)
 {
     int img_offset = 60;
     int draw_size = img_size - img_offset;
@@ -1044,10 +1048,10 @@ extern "C" mat_cv* draw_train_chart(float max_img_loss, int max_batches, int num
         cv::putText(img, "Press 's' to save : chart.png", cv::Point(5, img_size - 10), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.7, CV_RGB(0, 0, 0), 1, CV_AA);
         if (!dont_show) {
             printf(" If error occurs - run training with flag: -dont_show \n");
-            cv::namedWindow("average loss", cv::WINDOW_NORMAL);
-            cv::moveWindow("average loss", 0, 0);
-            cv::resizeWindow("average loss", img_size, img_size);
-            cv::imshow("average loss", img);
+            cv::namedWindow(windows_name, cv::WINDOW_NORMAL);
+            cv::moveWindow(windows_name, 0, 0);
+            cv::resizeWindow(windows_name, img_size, img_size);
+            cv::imshow(windows_name, img);
             cv::waitKey(20);
         }
     }
@@ -1058,7 +1062,7 @@ extern "C" mat_cv* draw_train_chart(float max_img_loss, int max_batches, int num
 }
 // ----------------------------------------
 
-extern "C" void draw_train_loss(mat_cv* img_src, int img_size, float avg_loss, float max_img_loss, int current_batch, int max_batches,
+extern "C" void draw_train_loss(char *windows_name, mat_cv* img_src, int img_size, float avg_loss, float max_img_loss, int current_batch, int max_batches,
     float precision, int draw_precision, char *accuracy_name, int dont_show, int mjpeg_port)
 {
     try {
@@ -1110,19 +1114,20 @@ extern "C" void draw_train_loss(mat_cv* img_src, int img_size, float avg_loss, f
 
         int k = 0;
         if (!dont_show) {
-            cv::imshow("average loss", img);
+            cv::imshow(windows_name, img);
             k = cv::waitKey(20);
         }
         static int old_batch = 0;
         if (k == 's' || current_batch == (max_batches - 1) || (current_batch / 100 > old_batch / 100)) {
             old_batch = current_batch;
             save_mat_png(img, "chart.png");
+            save_mat_png(img, windows_name);
             cv::putText(img, "- Saved", cv::Point(260, img_size - 10), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.7, CV_RGB(255, 0, 0), 1, CV_AA);
         }
         else
             cv::putText(img, "- Saved", cv::Point(260, img_size - 10), cv::FONT_HERSHEY_COMPLEX_SMALL, 0.7, CV_RGB(255, 255, 255), 1, CV_AA);
 
-        if (mjpeg_port > 0) send_mjpeg((mat_cv *)&img, mjpeg_port, 500000, 100);
+        if (mjpeg_port > 0) send_mjpeg((mat_cv *)&img, mjpeg_port, 500000, 70);
     }
     catch (...) {
         cerr << "OpenCV exception: draw_train_loss() \n";
@@ -1206,15 +1211,15 @@ extern "C" image image_data_augmentation(mat_cv* mat, int w, int h,
         if (blur) {
             cv::Mat dst(sized.size(), sized.type());
             if (blur == 1) {
-                //cv::GaussianBlur(sized, dst, cv::Size(31, 31), 0);
-                cv::bilateralFilter(sized, dst, 17, 75, 75);
+                cv::GaussianBlur(sized, dst, cv::Size(17, 17), 0);
+                //cv::bilateralFilter(sized, dst, 17, 75, 75);
             }
             else {
                 int ksize = (blur / 2) * 2 + 1;
                 cv::Size kernel_size = cv::Size(ksize, ksize);
-                //cv::GaussianBlur(sized, dst, kernel_size, 0);
+                cv::GaussianBlur(sized, dst, kernel_size, 0);
                 //cv::medianBlur(sized, dst, ksize);
-                cv::bilateralFilter(sized, dst, ksize, 75, 75);
+                //cv::bilateralFilter(sized, dst, ksize, 75, 75);
 
                 // sharpen
                 //cv::Mat img_tmp;
@@ -1270,7 +1275,9 @@ extern "C" image blur_image(image src_img, int ksize)
 {
     cv::Mat src = image_to_mat(src_img);
     cv::Mat dst;
-    cv::bilateralFilter(src, dst, ksize, 75, 75);
+    cv::Size kernel_size = cv::Size(ksize, ksize);
+    cv::GaussianBlur(src, dst, kernel_size, 0);
+    //cv::bilateralFilter(src, dst, ksize, 75, 75);
     image dst_img = mat_to_image(dst);
     return dst_img;
 }
@@ -1326,10 +1333,20 @@ extern "C" void show_acnhors(int number_of_boxes, int num_of_clusters, float *re
     cv::destroyAllWindows();
 }
 
+void show_opencv_info()
+{
+    std::cerr << " OpenCV version: " << CV_VERSION_MAJOR << "." << CV_VERSION_MINOR << "." << CVAUX_STR(CV_VERSION_REVISION) OCV_D
+        << std::endl;
+}
+
+
+
 }   // extern "C"
-
-
 #else  // OPENCV
+extern "C" void show_opencv_info()
+{
+    std::cerr << " OpenCV isn't used \n";
+}
 extern "C" int wait_key_cv(int delay) { return 0; }
 extern "C" int wait_until_press_key_cv() { return 0; }
 extern "C" void destroy_all_windows_cv() {}
