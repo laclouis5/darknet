@@ -57,6 +57,8 @@ class Evaluator:
 
                 if method == EvaluationMethod.Distance:
                     minDist = distMin = sys.float_info.max
+                    minImgSize = min(detection.getImageSize())
+                    normThresh = thresh * minImgSize
 
                     for (j, gt) in enumerate(associatedGts):
                         dist = detection.distance(gt)
@@ -65,7 +67,7 @@ class Evaluator:
                             minDist = dist
                             jmin = j
 
-                    if minDist < thresh and not visited[imageName][jmin]:
+                    if minDist < normThresh and not visited[imageName][jmin]:
                         visited[imageName][jmin] = True
                         TP[i] = True
 
@@ -84,8 +86,9 @@ class Evaluator:
                 'interpolated precision': mpre,
                 'interpolated recall': mrec,
                 'total positives': npos,
-                'total TP': acc_TP[-1],
-                'total FP': acc_FP[-1]
+                'total detections': len(TP),
+                'total TP': sum(TP),
+                'total FP': sum([not tp for tp in TP])
             })
 
         return ret
@@ -121,9 +124,10 @@ class Evaluator:
                 label = metric["class"]
                 AP = metric["AP"]
                 totalPositive = metric["total positives"]
+                totalDetections = metric["total detections"]
                 TP = metric["total TP"]
                 FP = metric["total FP"]
-                print("  {:<13} - AP: {:.2%}  npos: {}  TP: {}  FP: {}".format(label, AP, totalPositive, TP, FP))
+                print("  {:<13} - AP: {:.2%}  npos: {}  nDet: {}  TP: {}  FP: {}".format(label, AP, totalPositive, totalDetections, TP, FP))
 
     def PlotPrecisionRecallCurve(self,
                                  boundingBoxes,

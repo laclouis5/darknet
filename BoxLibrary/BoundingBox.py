@@ -298,7 +298,6 @@ class BoundingBox:
                     cv2.LINE_AA)
         return image
 
-    @staticmethod
     def copy(self):
         return BoundingBox(
             self._imageName,
