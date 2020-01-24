@@ -567,7 +567,7 @@ def performDetectOnFolder(network, directory, conf_thresh=0.25):
 
     return boxes
 
-def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=30, min_hits=3):
+def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=1, min_hits=3):
     """
     Takes as input a path to a folder of images in chronological order by name:
         * t=0 -> im_01.jpg
@@ -583,8 +583,14 @@ def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=
     obj = network.meta
 
     # Retreive files in chronological order
-    images = files_with_extension(directory, ".jpg")
-    images.sort(key=os.path.getmtime)
+    # images = files_with_extension(directory, ".jpg")
+    # images.sort(key=os.path.getmtime)
+
+    # Files are in chronological order
+    images = []
+    with open(directory, "r") as f:
+        images = f.readlines()
+    images = [image.strip() for image in images]
 
     # Network init
     performDetect("", thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False, initOnly=True)
@@ -599,6 +605,7 @@ def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=
 
     # Main loop
     for image in images[1:]:
+        # print("IMAGE: {}".format(image))
         # Yolo detections
         detections = performDetect(image, thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
         det_boxes = Parser.parse_yolo_darknet_detections(detections, image, img_size=image_size(image))
@@ -607,7 +614,8 @@ def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=
         current_image = cv.imread(image)
         opt_flow, past_image = optical_flow(past_image, current_image, opt_flow) # Not optimized
         egi = egi_mask(current_image)
-        dx, dy = mean_opt_flow(opt_flow, ~egi)
+        dx, dy = mean_opt_flow(opt_flow, egi)
+        # print("OPT FLOW: {} {}".format(dx, dy))
 
         # Per label loop
         for label in labels:
@@ -1124,11 +1132,12 @@ def _test_optical_flow(folder):
         print("Dx: {}, Dy: {}".format(dx, dy))
 
 if __name__ == "__main__":
-    # image_path  = "data/val/"
-    image_path = "data/demo_mais/"
-    train_path  = "data/train/"
+    train_path = "data/train/"
+    val_path = "data/val/"
+    bean_test = "data/haricot_debug_montoldre_2/"
+    maize_test = "data/demo_mais/"
 
-    model_path = "results/yolo_v3_tiny_pan3_7"
+    model_path = "results/yolo_v3_spp_pan_csr50_3"
     yolo = YoloModelPath(model_path)
 
     yolo_1 = {
@@ -1152,16 +1161,24 @@ if __name__ == "__main__":
 
     # _test_optical_flow(image_path)
 
-    dets = performDetectOnFolder(yolo, image_path, 0.2)
-    # dets = performDetectOnFolderAndTrack(yolo, image_path, conf_thresh=0.2, min_hits=3)
-    gts = Parser.parse_yolo_gt_folder(image_path)
+    gts = Parser.parse_yolo_gt_folder(bean_test)
     gts.mapLabels(number_to_label)
-
+    # dets = performDetectOnFolder(yolo, bean_test, 0.5)
+    dets = performDetectOnFolderAndTrack(yolo, "data/haricot_debug.txt", conf_thresh=0.5, min_hits=2, max_age=10)
+    gts = BoundingBoxes([gt for gt in gts if gt.getImageName() != "data/haricot_debug_montoldre_2/im_0.jpg"])
+    dets = BoundingBoxes([det for det in dets if det.getImageName() != "data/haricot_debug_montoldre_2/im_0.jpg"])
     # Evaluator().printAPs(gts + dets)
     Evaluator().printAPsByClass(gts + dets)
-    Evaluator().printAPsByClass(gts + dets, 40, EvaluationMethod.Distance)
+    Evaluator().printAPsByClass(gts + dets, 3.7 / 100, EvaluationMethod.Distance)
 
-    # (dets + gts).drawAll(save_dir="save/tracked/")
+    # gts = Parser.parse_yolo_gt_folder(bean_test)
+    # gts.mapLabels(number_to_label)
+    # dets = performDetectOnFolder(yolo, bean_test, conf_thresh=0.5)
+    # # dets = performDetectOnFolder(yolo, bean_test, conf_thresh=0.5)
+    # Evaluator().printAPs(gts + dets)
+    # Evaluator().printAPsByClass(gts + dets)
+
+    # (gts + dets).drawAll(save_dir="save/tracked_test_2/")
 
     # tracker = Sort(max_age=3, min_hits=1)
     # mult = 2
