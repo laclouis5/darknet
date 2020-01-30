@@ -32,6 +32,7 @@ import math
 import random
 import os
 import datetime
+import time
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -559,15 +560,17 @@ def performDetectOnFolder(network, directory, conf_thresh=0.25):
 
     boxes = BoundingBoxes()
     images = files_with_extension(directory, ".jpg")
+    images_count = len(images)
 
-    for image in images:
+    for i, image in enumerate(images):
+        print("{:.4}%".format(100 * (i + 1) / images_count))
         img_size = image_size(image)
         detections = performDetect(image, thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
         boxes += Parser.parse_yolo_darknet_detections(detections, image, img_size)
 
     return boxes
 
-def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=1, min_hits=3):
+def performDetectOnFolderAndTrack(network, txt_file, conf_thresh=0.25, max_age=1, min_hits=3):
     """
     Takes as input a path to a folder of images in chronological order by name:
         * t=0 -> im_01.jpg
@@ -582,13 +585,9 @@ def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=
     cfg = network.cfg
     obj = network.meta
 
-    # Retreive files in chronological order
-    # images = files_with_extension(directory, ".jpg")
-    # images.sort(key=os.path.getmtime)
-
     # Files are in chronological order
     images = []
-    with open(directory, "r") as f:
+    with open(txt_file, "r") as f:
         images = f.readlines()
     images = [image.strip() for image in images]
 
@@ -602,20 +601,22 @@ def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=
     all_boxes = BoundingBoxes()
     opt_flow = None
     past_image = cv.imread(images[0])
+    image_count = len(images) - 1
 
     # Main loop
-    for image in images[1:]:
-        # print("IMAGE: {}".format(image))
+    for i, image in enumerate(images[1:]):
+        print("{:.4}%".format((i + 1) / image_count * 100))
+        print("IMAGE: {}".format(image))
         # Yolo detections
         detections = performDetect(image, thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
         det_boxes = Parser.parse_yolo_darknet_detections(detections, image, img_size=image_size(image))
 
         # Optical flow
         current_image = cv.imread(image)
-        opt_flow, past_image = optical_flow(past_image, current_image, opt_flow) # Not optimized
+        opt_flow, past_image = optical_flow(past_image, current_image, opt_flow)
         egi = egi_mask(current_image)
         dx, dy = mean_opt_flow(opt_flow, egi)
-        # print("OPT FLOW: {} {}".format(dx, dy))
+        print("OPT FLOW: {} {}".format(dx, dy))
 
         # Per label loop
         for label in labels:
@@ -628,6 +629,47 @@ def performDetectOnFolderAndTrack(network, directory, conf_thresh=0.25, max_age=
             all_boxes += [box.cliped() for box in boxes if box.centerIsIn()]
 
     return all_boxes
+
+def drawConstellation(network, txt_file, nb_samples=10, offset=0):
+    model = network.weights
+    cfg = network.cfg
+    obj = network.meta
+
+    # Files are in chronological order
+    images = []
+    with open(txt_file, "r") as f:
+        images = f.readlines()
+    images = [image.strip() for image in images]
+
+    x_values = []
+    y_values = []
+    colors = []
+
+    color_map = {str(k): k / 5 for k in range(6)}
+    print(color_map)
+
+    for image in images[offset:nb_samples + offset]:
+        gt = os.path.splitext(image.strip())[0] + ".txt"
+        boxes = Parser.parse_yolo_gt_file(gt)
+
+        for box in boxes:
+            (x, y, _, _) = box.getAbsoluteBoundingBox(format=BBFormat.XYC)
+            x_values.append(x)
+            y_values.append(y)
+            colors.append(color_map[box.getClassId()])
+
+    import matplotlib.pyplot as plt
+
+
+    image = images[nb_samples + offset - 1]
+    (width, height) = image_size(image)
+    im = plt.imread(image)
+    plt.imshow(im)
+    plt.scatter(x_values, y_values, c=colors, cmap="rainbow")
+    plt.xlim((0, width))
+    plt.ylim((height, 0))
+    plt.show()
+
 
 # Obsolete?
 def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file, conv_back=False):
@@ -664,6 +706,7 @@ def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file, con
 
         with open(save_name, 'w') as f:
             f.writelines(lines)
+
 
 # Obsolete?
 def save_gt_to_txt(folder_path, save_dir, map, conv_back=False) :
@@ -1134,10 +1177,16 @@ def _test_optical_flow(folder):
 if __name__ == "__main__":
     train_path = "data/train/"
     val_path = "data/val/"
-    bean_test = "data/haricot_debug_montoldre_2/"
-    maize_test = "data/demo_mais/"
 
-    model_path = "results/yolo_v3_spp_pan_csr50_3"
+    bean_long = "data/haricot_debug_long.txt"
+    bean_long_folder = "data/haricot_debug_long"
+    maize_long = "data/mais_debug_long.txt"
+    maize_long_folder = "data/mais_debug_long"
+    maize_demo = "data/demo_mais.txt"
+    maize_demo_folder = "data/demo_mais"
+
+    # model_path = "results/yolo_v3_spp_pan_csr50_3"
+    model_path = "results/yolo_v3_pan_csr50_optimal_2" # BDD 4.2
     yolo = YoloModelPath(model_path)
 
     yolo_1 = {
@@ -1150,35 +1199,59 @@ if __name__ == "__main__":
         "cfg": "results/yolo_v3_tiny_pan3_5/yolo_v3_tiny_pan3_aa_ae_mixup_scale_giou.cfg",
         "obj": "results/yolo_v3_tiny_pan3_5/obj.data"}
 
-    video_path  = "/media/deepwater/Elements/Louis/2019-07-25_larrere_videos/demo_tele_4K.mp4"
+    video_path = "/media/deepwater/Elements/Louis/2019-07-25_larrere_videos/demo_tele_4K.mp4"
     video_param = {"skip_frames": 5, "down_scale": 2, "gray_scale": False, "ratio": 4/3}
 
-    consort  = 'Bipbip'
+    consort = 'Bipbip'
     save_dir = 'save/'
     labels_to_names = ['maize', 'bean', 'leek', 'stem_maize', 'stem_bean', 'stem_leek']
     label_to_number = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
     number_to_label = {0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"}
 
+    fr_to_en = {
+        "mais": "maize",
+        "haricot": "bean",
+        "poireau": "leek",
+        "mais_tige": "stem_maize",
+        "haricot_tige": "stem_bean",
+        "poireau_tige": "stem_leek"}
+
     # _test_optical_flow(image_path)
 
-    gts = Parser.parse_yolo_gt_folder(bean_test)
-    gts.mapLabels(number_to_label)
-    # dets = performDetectOnFolder(yolo, bean_test, 0.5)
-    dets = performDetectOnFolderAndTrack(yolo, "data/haricot_debug.txt", conf_thresh=0.5, min_hits=2, max_age=10)
-    gts = BoundingBoxes([gt for gt in gts if gt.getImageName() != "data/haricot_debug_montoldre_2/im_0.jpg"])
-    dets = BoundingBoxes([det for det in dets if det.getImageName() != "data/haricot_debug_montoldre_2/im_0.jpg"])
+    # Untracked
+    # folder = "/media/deepwater/DATA/Shared/Louis/datasets/" + "haricot_debug_montoldre_2"
+    # folder_txt = "data/haricot_debug_long_2.txt"
+    # gts = Parser.parse_xml_folder(folder)
+    # gts.mapLabels(fr_to_en)
+    # gts.stats()
+    # dets = performDetectOnFolder(yolo, folder, 0.5)
+    # dets = BoundingBoxes([det for det in dets if det.getImageName() in gts.getNames()])
     # Evaluator().printAPs(gts + dets)
+    # Evaluator().printAPsByClass(gts + dets)
+    # Evaluator().printAPsByClass(gts + dets, 3.7 / 100, EvaluationMethod.Distance)
+    # dets.drawAll(save_dir="save/bean_debug_long_untracked/")
+
+    # Tracked
+    folder = "/media/deepwater/DATA/Shared/Louis/datasets/" + "haricot_debug_montoldre_2"
+    folder_txt = "data/haricot_debug_long_2.txt"
+    gts = Parser.parse_xml_folder(folder)
+    gts.mapLabels(fr_to_en)
+    gts.stats()
+    dets = performDetectOnFolderAndTrack(yolo, folder_txt, 0.5, max_age=10, min_hits=1)
+    dets = BoundingBoxes([det for det in dets if det.getImageName() in gts.getNames()])
+    Evaluator().printAPs(gts + dets)
     Evaluator().printAPsByClass(gts + dets)
     Evaluator().printAPsByClass(gts + dets, 3.7 / 100, EvaluationMethod.Distance)
+    dets.drawAll(save_dir="save/bean_debug_long_tracked_KF_aggr_1/")
 
-    # gts = Parser.parse_yolo_gt_folder(bean_test)
+    # gts = Parser.parse_yolo_gt_folder(val_path)
     # gts.mapLabels(number_to_label)
-    # dets = performDetectOnFolder(yolo, bean_test, conf_thresh=0.5)
-    # # dets = performDetectOnFolder(yolo, bean_test, conf_thresh=0.5)
+    # dets = performDetectOnFolder(yolo, val_path, conf_thresh=0.005)
     # Evaluator().printAPs(gts + dets)
     # Evaluator().printAPsByClass(gts + dets)
 
-    # (gts + dets).drawAll(save_dir="save/tracked_test_2/")
+    # drawConstellation(yolo, bean_long, nb_samples=2, offset=30)
+
 
     # tracker = Sort(max_age=3, min_hits=1)
     # mult = 2
