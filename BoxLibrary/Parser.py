@@ -29,7 +29,9 @@ class Parser:
     def parse_xml_file(file, classes=None):
         boxes = BoundingBoxes()
         tree = ET.parse(file).getroot()
-        classes = [str(item) for item in classes]
+
+        if classes is not None:
+            classes = [str(item) for item in classes]
 
         name = os.path.join(os.path.dirname(tree.find('path').text), tree.find('filename').text)
         width = tree.find('size').find('width').text
