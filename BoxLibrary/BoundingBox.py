@@ -141,7 +141,14 @@ class BoundingBox:
         area = (self._w + 1) * (self._h + 1)
         return area
 
+
     def clip(self, size=None):
+        """
+        Crops the bounding box to fit into a given rectangle. It correponds to the partition that is common with the given rectangle.
+
+        Parameters:
+            size (float, float): The width and height in absolute coordinates of the bounding frame. If size is None and an image size is specified in the BoundingBox object, the last in used.
+        """
         if (self._width_img is None or self._height_img is None) and size is None:
             raise IOError('Parameter \'size\' is required. It is necessary to inform the size.')
 
@@ -169,13 +176,32 @@ class BoundingBox:
             clip(self, self.getImageSize())
 
     def cliped(self, size=None):
+        """
+        Crops the bounding box to fit into a given rectangle and returns it as a new box. It correponds to the partition that is common with the given rectangle.
+
+        Parameters:
+            size (float, float): The width and height in absolute coordinates of the bounding frame. If size is None and an image size is specified in the BoundingBox object, the last in used.
+
+        Returns:
+            box (BoundingBox): The clipped box.
+        """
         box = self.copy()
         box.clip(size)
         return box
 
     def centerIsIn(self, rect=None):
+        """
+        Returns True if the BoundingBox center is in a given rectangle. If no rectangle is provided, the image size stored in the BoundingBox is used, if there is one.
+
+        Parameters:
+            rect [float]: The coordinnates of the rectangle with format [xMin, yMin, xMax, yMax].
+
+        Returns:
+            bool: Boolean indicading if the BoundingBox center is in the Rectangle.
+        """
+
         if (self._width_img is None or self._height_img is None) and rect is None:
-            raise IOError('Parameter \'size\' is required. It is necessary to inform the size.')
+            raise IOError('Parameter \'rect\' is required. It is necessary to inform it.')
 
         def centerIsIn(x, y, rect):
             if x < rect[0]: return False
@@ -214,12 +240,30 @@ class BoundingBox:
         return intersection / union
 
     def intersects(self, other):
+        """
+        Returns True if the BoundingBox intersects the other BoundingBox.
+
+        Parameters:
+            other (BoundingBox): The other box to compare with.
+
+        Returns:
+            bool: Boolean indicating if the intersection of the two boxes is not zero.
+        """
         boxA = self.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
         boxB = other.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
 
         return boxA[0] < boxB[2] and boxB[0] < boxA[2] and boxA[3] > boxB[1]  and boxB[3] > boxA[1]
 
     def distance(self, other):
+        """
+        Returns the distance from the center of this BoundingBox to the center of another BoundingBox (Euclidian distance).
+
+        Parameters:
+            other (BoundingBox): The other box.
+
+        Returns:
+            float: The distance between box centers.
+        """
         boxA = self.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
         boxB = other.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
 
@@ -235,9 +279,8 @@ class BoundingBox:
 
         return dist
 
-    def mapLabel(self, mapping):
-        mapping = {str(key): value for (key, value) in mapping.items()}
-        self._classId = mapping[str(self._classId)]
+    def setClassId(self, new_class_id):
+        self._classId = new_class_id
 
     def description(self, type_coordinates=None, format=None):
         if type_coordinates is None:

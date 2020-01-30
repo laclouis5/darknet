@@ -34,6 +34,12 @@ class BoundingBoxes(MutableSequence):
         return sorted(set([box.getClassId() for box in self]))
 
     def getNames(self):
+        """
+        Returns a list of BoundingBoxes image names. The list is sorted and all entries are unique.
+
+        Returns:
+            [str]: The sorted list of image names.
+        """
         return sorted(set([box.getImageName() for box in self]))
 
     def getBoundingBoxesByType(self, bbType):
@@ -52,14 +58,33 @@ class BoundingBoxes(MutableSequence):
         return np.array(array)
 
     def imageSize(self, imageName):
+        """
+        Returns the size of the specified image.
+
+        Parameters:
+            imageName (str): The name of the image.
+
+        Raises:
+            IOError: Raised if image cannot be found.
+
+        Returns:
+            (float, float): The size of the image: (width, height).
+        """
         box = next((box for box in self if box.getImageName() == imageName), None)
         if box is None:
             raise IOError("Image with name '{}' not found, can't return its size.".format(imageName))
         return box.getImageSize()
 
     def mapLabels(self, mapping):
+        """
+        Map the BoundingBox classIds attribute to another value specified in a dictionnary. this method mutates the instances.
+
+        Parameters:
+            mapping (dict): A dictionnary that links the current classId to the new value. for instance if the possible values for classId are [0, 1, 2] and new values are ["car", "pedestrian", "bike"] the mapping dictionnary is: {0: "car", 1: "pedestrian", 2: "bike"}.
+        """
+        mapping = {str(key): value for (key, value) in mapping.items()}
         for box in self:
-            box.mapLabel(mapping)
+            box.setClassId(mapping[box.getClassId()])
 
     def shuffleBoundingBoxes(self):
         shuffle(self._boundingBoxes)
@@ -86,6 +111,16 @@ class BoundingBoxes(MutableSequence):
     def save(self, type_coordinates=CoordinatesType.Relative, format=BBFormat.XYWH, save_dir=None):
         """
         Save all bounding boxes as Yolo annotation files in the specified directory.
+
+        The files are TXT files named with the image name provided in each BoundingBox. Each line of the file is in the format "classId <optional confidence> coord1 coord2 coord3 coord4".
+
+        Parameters:
+            type_coordinates (CoordinatesType):
+                The type of the coordinnates, either absolute or relative.
+            format (BBFormat):
+                The bounding box format, can be [xMin, yMin, xMax, yMax], [xCenter, yCenter, width, height] or other. See BBFormat for more information.
+            save_dir (str):
+                The directory where to save the files as TXT files.
         """
         for imageName in self.getNames():
             description = ""
@@ -131,7 +166,16 @@ class BoundingBoxes(MutableSequence):
 
     def drawCVImage(self, image, imageName):
         """
-        draws boxes for imageName on the CV image and returns it.
+        Draws boxes on a CV image.
+
+        Parameters:
+            image (CVImage):
+                Reference to the image to draw to.
+            imageName (str):
+                The image name to query boxes to be drawn.
+
+        Returns:
+            CVImage: The reference to the resulting image.
         """
         boxes = self.getBoundingBoxesByImageName(imageName)
         for box in boxes:
@@ -140,8 +184,15 @@ class BoundingBoxes(MutableSequence):
 
     def drawImage(self, name, save_dir=None):
         """
-        draws boxes for 'name' on its corresponding image name specified
-        in box.imageName and saves it in save_dir if given.
+        Draws boxes on its corresponding image and save it to disk.
+
+        The name of the image should be the absolute path to the actual image. You should store the real image path in BoundingBox._imageName if you want to use this method.
+
+        Parameters:
+            name (str):
+                The image name to query boxes to be drawn.
+            save_dir (str):
+                The path where to store the image.
         """
         import cv2 as cv
 
@@ -154,8 +205,14 @@ class BoundingBoxes(MutableSequence):
 
     def drawAll(self, save_dir="annotated_images/"):
         """
-        draws all boxes on their correponding image stored in box.imageName and
-        saves images in save_dir.
+        Draws all boxes on their corresponding images and save them to disk. You should store the real image paths in BoundingBox._imageName if you want to use this method.
+
+        Warning:
+            This method uses parallel computing with joblib package to accelerate the process. joblib should be installed.
+
+        Parameters:
+            save_dir (str):
+                The path where to store the image.
         """
         from joblib import Parallel, delayed
 
