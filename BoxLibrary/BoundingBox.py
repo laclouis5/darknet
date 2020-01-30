@@ -2,39 +2,35 @@ from .utils import *
 from math import sqrt
 
 class BoundingBox:
-    def __init__(self,
-                 imageName,
-                 classId,
-                 x,
-                 y,
-                 w,
-                 h,
-                 typeCoordinates=CoordinatesType.Absolute,
-                 imgSize=None,
-                 bbType=BBType.GroundTruth,
-                 classConfidence=None,
-                 format=BBFormat.XYWH):
-        """Constructor.
-        Args:
-            imageName: String representing the image name.
-            classId: String value representing class id.
-            x: Float value representing the X upper-left coordinate of the bounding box.
-            y: Float value representing the Y upper-left coordinate of the bounding box.
-            w: Float value representing the width bounding box.
-            h: Float value representing the height bounding box.
-            typeCoordinates: (optional) Enum (Relative or Absolute) represents if the bounding box
-            coordinates (x,y,w,h) are absolute or relative to size of the image. Default:'Absolute'.
-            imgSize: (optional) 2D vector (width, height)=>(int, int) represents the size of the
-            image of the bounding box. If typeCoordinates is 'Relative', imgSize is required.
-            bbType: (optional) Enum (Groundtruth or Detection) identifies if the bounding box
-            represents a ground truth or a detection. If it is a detection, the classConfidence has
-            to be informed.
-            classConfidence: (optional) Float value representing the confidence of the detected
-            class. If detectionType is Detection, classConfidence needs to be informed.
-            format: (optional) Enum (BBFormat.XYWH or BBFormat.XYX2Y2) indicating the format of the
-            coordinates of the bounding boxes. BBFormat.XYWH: <left> <top> <width> <height>
-            BBFormat.XYX2Y2: <left> <top> <right> <bottom>.
-        """
+    """
+    Represents a bounding box with a classId, associated to an image name and with an optional confidence.
+
+    Constructor Parameters:
+        imageName (str):
+             The image name.
+        classId (str):
+            The class id or label.
+        x (float):
+            The X upper-left coordinate of the bounding box.
+        y (float):
+            The Y upper-left coordinate of the bounding box.
+        w (float):
+            The width bounding box.
+        h (float):
+            The height bounding box.
+        typeCoordinates (optional CoordinatesType):
+            Enum (Relative or Absolute) representing if the bounding box coordinates (x,y,w,h) are absolute or relative to size of the image. Default:'Absolute'.
+        imgSize (optional tuple(float, flaot)):
+            2D vector (width, height) represents the size of the image of the bounding box. If typeCoordinates is 'Relative', imgSize is required.
+        bbType (optional BBType):
+            Enum (Groundtruth or Detection) identifies if the bounding box represents a ground truth or a detection. If it is a detection, the classConfidence has to be informed.
+        classConfidence (float):
+            The confidence of the detected class. If detectionType is Detection, classConfidence needs to be informed.
+        format (optional BBFormat):
+            Enum (XYWH, XYX2Y2 or XYC) indicating the format of the coordinates of the bounding boxes. XYWH: <left> <top> <width> <height>, XYX2Y2: <left> <top> <right> <bottom>, XYC: <xCenter> <yCenter> <width> <height>.
+    """
+    
+    def __init__(self, imageName, classId, x, y, w, h, typeCoordinates=CoordinatesType.Absolute, imgSize=None, bbType=BBType.GroundTruth, classConfidence=None, format=BBFormat.XYWH):
         self._imageName = imageName
         self._typeCoordinates = typeCoordinates
         if typeCoordinates == CoordinatesType.Relative and imgSize is None:
