@@ -127,6 +127,7 @@ class KalmanBoxTracker(object):
         self.history = []
         self.hits = 0
         self.hit_streak = 0
+        self.max_hit_streak = 0
         self.age = 0
 
     def update(self, bbox):
@@ -137,6 +138,7 @@ class KalmanBoxTracker(object):
         self.history = []
         self.hits += 1
         self.hit_streak += 1
+        self.max_hit_streak = max(self.max_hit_streak, self.hit_streak)
         self.kf.update(convert_bbox_to_z(bbox))
 
     def predict(self, velocity=None):
