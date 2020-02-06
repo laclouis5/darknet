@@ -31,6 +31,12 @@ class BoundingBoxes(MutableSequence):
         self._boundingBoxes.insert(index, box)
 
     def getClasses(self):
+        """
+        Returns a list of BoundingBoxes class Ids. The list is sorted and all entries are unique.
+
+        Returns:
+            [str]: The sorted list of clas ids.
+        """
         return sorted(set([box.getClassId() for box in self]))
 
     def getNames(self):
@@ -85,6 +91,80 @@ class BoundingBoxes(MutableSequence):
         mapping = {str(key): value for (key, value) in mapping.items()}
         for box in self:
             box.setClassId(mapping[box.getClassId()])
+
+    def clip(self, size=None):
+        """
+        Crops boxes to fit into a given rectangle. It correponds to the partition that is common with the given rectangle.
+
+        Parameters:
+            size (tuple(float, float)): The (width, height) in absolute coordinates of the bounding frame. If size is None and an image size is specified in the BoundingBox object, the last in used.
+        """
+        assert len(self.getNames()) == 1, "Boxes should belong to only one image when cliping."
+
+        for box in self:
+            box.clip(size)
+
+    def cliped(self, size=None):
+        """
+        Returns the croped boxes that fit into a given rectangle. It correponds to the partition that is common with the given rectangle.
+
+        Parameters:
+            size (tuple(float, float)): The (width, height) in absolute coordinates of the bounding frame. If size is None and an image size is specified in the BoundingBox object, the last in used.
+
+        Returns:
+            BoundingBoxes: The croped boxes.
+        """
+        boxes = self.copy()
+        boxes.clip(size)
+        return boxes
+
+    def movedBy(self, dx, dy, typeCoordinates=CoordinatesType.Absolute, imgSize=None):
+        """
+        Returns the boxes moved by the vector (dx, dy). By default coordinates are in absolute values. If using relative coordinates you should specify an image size if not already stored in the BoundingBox object.
+
+        Parameters:
+            dx (float):
+                The horizontal offset.
+            dy (float):
+                The vertical offset.
+            typeCoordinates (optional CoordinatesType):
+                The type of coordinates used. If 'Relative', imgSize should be informed either as a property of BoundingBox or as parameter to this method.
+            imgSize (tuple(float, float)):
+                The image size: (widht, height).
+
+        Raises:
+            IOError: imgSize should be informed when using CoordinatesType.Relative
+            AssertionError: Only use this method for a BoundingBoxes object storing boxes for one image.
+
+        Returns:
+            BoundingBoxes: The moved boxes.
+        """
+        assert len(self.getNames()) <= 1, "'movedBy()' is only available for BoundingBoxes representing one image"
+
+        return BoundingBoxes([box.movedBy(dx, dy, typeCoordinates, imgSize) for box in self])
+
+    def moveBy(self, dx, dy, typeCoordinates=CoordinatesType.Absolute, imgSize=None):
+        """
+        Moves the boxes by the vector (dx, dy). By default coordinates are in absolute values. If using relative coordinates you should specify an image size if not already stored in the BoundingBox object.
+
+        Parameters:
+            dx (float):
+                The horizontal offset.
+            dy (float):
+                The vertical offset.
+            typeCoordinates (optional CoordinatesType):
+                The type of coordinates used. If 'Relative', imgSize should be informed either as a property of BoundingBox or as parameter to this method.
+            imgSize (tuple(float, float)):
+                The image size: (widht, height).
+
+        Raises:
+            IOError: imgSize should be informed when using CoordinatesType.Relative.
+            AssertionError: Only use this method for a BoundingBoxes object storing boxes for one image.
+        """
+        assert len(self.getNames()) <= 1, "'moveBy()' is only available for BoundingBoxes representing one image"
+
+        for box in self:
+            box.moveBy(dx, dy, typeCoordinates, imgSize)
 
     def shuffleBoundingBoxes(self):
         shuffle(self._boundingBoxes)
@@ -222,4 +302,4 @@ class BoundingBoxes(MutableSequence):
         Parallel(n_jobs=-1, backend="multiprocessing")(delayed(self.drawImage)(name, sd) for (name, sd) in zip(names, save_dir))
 
     def copy(self):
-        newBoundingBoxes = BoundingBoxes([box.copy() for box in self._boundingBoxes])
+        return BoundingBoxes([box.copy() for box in self._boundingBoxes])
