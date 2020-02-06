@@ -114,7 +114,7 @@ class KalmanBoxTracker(object):
         self.kf.R[2:, 2:] *= 10. # Sensor noise
         self.kf.P[6:, 6:] *= 100. # Covariance matrix, initialized with low confidence for box size variations
         self.kf.P *= 10. # Box position is better known
-        self.kf.Q[4:, 4:] *= 0.01 # External noise and uncertainty
+        self.kf.Q[4:, 4:] *= 0.01 # External noise and uncertainty, try to tweak this parameter
 
         self.kf.x[:4] = convert_bbox_to_z(bbox)
         if velocity is not None:
