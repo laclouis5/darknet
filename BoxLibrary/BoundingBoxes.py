@@ -18,11 +18,11 @@ class BoundingBoxes(MutableSequence):
     def __getitem__(self, index):
         return self._boundingBoxes[index]
 
-    def __setitem__(self, box):
-        self._boundingBoxes.append(box)
+    def __setitem__(self, index, item):
+        self._boundingBoxes[index] = item
 
-    def __delitem__(self, box):
-        self._boundingBoxes.remove(box)
+    def __delitem__(self, index):
+        del self._boundingBoxes[index]
 
     def __add__(self, otherBoxes):
         return BoundingBoxes(self._boundingBoxes + otherBoxes._boundingBoxes)
