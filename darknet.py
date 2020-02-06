@@ -45,7 +45,7 @@ from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
 
-from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, mean_opt_flow, convert_to_grayscale, egi_mask
+from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, mean_opt_flow, convert_to_grayscale, egi_mask, generate_opt_flow
 
 from BoxLibrary import *
 from sort import *
@@ -602,6 +602,7 @@ def performDetectOnFolderAndTrack(network, txt_file, conf_thresh=0.25, max_age=1
     opt_flow = None
     past_image = cv.imread(images[0])
     image_count = len(images) - 1
+    opt_flows = []
 
     # Main loop
     for i, image in enumerate(images[1:]):
@@ -616,6 +617,7 @@ def performDetectOnFolderAndTrack(network, txt_file, conf_thresh=0.25, max_age=1
         opt_flow, past_image = optical_flow(past_image, current_image, opt_flow)
         egi = egi_mask(current_image)
         dx, dy = mean_opt_flow(opt_flow, egi)
+        opt_flows.append((dx, dy))
         print("OPT FLOW: {} {}".format(dx, dy))
 
         # Per label loop
@@ -628,13 +630,9 @@ def performDetectOnFolderAndTrack(network, txt_file, conf_thresh=0.25, max_age=1
             boxes = [BoundingBox(image, label, *track[:4], CoordinatesType.Absolute, image_size(image), BBType.Detected, 1, BBFormat.XYX2Y2) for track in tracks]
             all_boxes += [box.cliped() for box in boxes if box.centerIsIn()]
 
-    return all_boxes
+    return all_boxes, opt_flows
 
-def drawConstellation(network, txt_file, nb_samples=10, offset=0):
-    model = network.weights
-    cfg = network.cfg
-    obj = network.meta
-
+def drawConstellation(txt_file, nb_samples=10, offset=0):
     # Files are in chronological order
     images = []
     with open(txt_file, "r") as f:
@@ -660,7 +658,6 @@ def drawConstellation(network, txt_file, nb_samples=10, offset=0):
 
     import matplotlib.pyplot as plt
 
-
     image = images[nb_samples + offset - 1]
     (width, height) = image_size(image)
     im = plt.imread(image)
@@ -670,6 +667,117 @@ def drawConstellation(network, txt_file, nb_samples=10, offset=0):
     plt.ylim((height, 0))
     plt.show()
 
+def drawConstellationFlat(txt_file, folder, opt_flow):
+    # Opt flow stuff reading
+    opt_flows = []
+    with open(opt_flow, "r") as f:
+        opt_flows = f.readlines()
+        opt_flows = [c.strip().split(" ") for c in opt_flows]
+        opt_flows = [(float(c[0]), float(c[1])) for c in opt_flows]
+
+    # Parse gts in folder
+    gts = Parser.parse_xml_folder(folder)
+
+    # Parse images in chronological order
+    images = []
+    with open(txt_file, "r") as f:
+        images = [c.strip() for c in f.readlines()]
+
+    # Init stuff and main loop
+    out_boxes = BoundingBoxes()
+    dx, dy = 0, 0
+    for i, image in enumerate(images):
+        opt_flow = opt_flows[i]
+        dx += opt_flow[0]
+        dy += opt_flow[1]
+        print(dx, dy)
+        boxes = gts.getBoundingBoxesByImageName(image)
+        boxes.moveBy(dx=-1.15 * dx, dy=-dy)
+        out_boxes += boxes
+
+    # out_boxes.mapLabels({0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"})
+    boxes_by_class = {label: out_boxes.getBoundingBoxByClass(label) for label in out_boxes.getClasses()}
+
+    # Plot stuff
+    plt.figure()
+    colormap = ["red", "green", "blue", "orange", "purple", "pink"]
+    for i, (label, boxes) in enumerate(boxes_by_class.items()):
+        coords = [box.getAbsoluteBoundingBox(format=BBFormat.XYC) for box in boxes_by_class[label]]
+        coords = [(coord[0], coord[1]) for coord in coords]
+        plt.scatter([coord[0] for coord in coords], [coord[1] for coord in coords], c=colormap[i], marker=".")
+
+    plt.legend(boxes_by_class.keys())
+    plt.title("Constellation")
+    plt.xlabel("X position (pixels)")
+    plt.ylabel("Y position (pixels)")
+    plt.ylim([632, 0])
+    plt.show()
+
+def drawConstellationDet(network, gts_dir, txt_file, opt_flow, thresh=0.5):
+    # Opt flow stuff reading
+    opt_flows = []
+    with open(opt_flow, "r") as f:
+        opt_flows = f.readlines()
+        opt_flows = [c.strip().split(" ") for c in opt_flows]
+        opt_flows = [(float(c[0]), float(c[1])) for c in opt_flows]
+
+    # Parse images in chronological order
+    images = []
+    with open(txt_file, "r") as f:
+        images = [c.strip() for c in f.readlines()]
+
+    # Yolo params
+    model = network.weights
+    cfg = network.cfg
+    obj = network.meta
+
+    # Gts parsing
+    gts = Parser.parse_xml_folder(gts_dir)
+    gts.mapLabels(fr_to_en)
+
+    # Detect
+    out_boxes = BoundingBoxes()
+    dx, dy = 0, 0
+    for i, image in enumerate(images[:500]):
+        # Opt flow shit
+        opt_flow = opt_flows[i]
+        dx += opt_flow[0]
+        dy += opt_flow[1]
+        # Detection things
+        img_size = image_size(image)
+        detections = performDetect(image, thresh=thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
+        boxes = Parser.parse_yolo_darknet_detections(detections, image, img_size)
+        boxes.moveBy(dx=-dx, dy=-dy)
+        # Gts
+        img_gts = gts.getBoundingBoxesByImageName(image)
+        img_gts.moveBy(dx=-dx, dy=-dy)
+        # Fill array
+        out_boxes += img_gts + boxes
+
+    # Time to plot stuff
+    plt.figure()
+    labels = out_boxes.getClasses()
+    cmap = plt.get_cmap("gist_rainbow")
+
+    for i, label in enumerate(["stem_bean"]):
+        color = cmap(i * 1 / len(labels))
+        boxes = out_boxes.getBoundingBoxByClass(label)
+        detections = boxes.getBoundingBoxesByType(BBType.Detected)
+        abs_coords = [box.getAbsoluteBoundingBox(format=BBFormat.XYC) for box in detections]
+        x_values = [coord[0] for coord in abs_coords]
+        y_values = [coord[1] for coord in abs_coords]
+        colors = np.array([[*color[:3],  (box.getConfidence() - thresh) / (1 - thresh)] for box in detections])
+        plt.scatter(x_values, y_values, c=colors, marker=".")
+
+        groundTruths = boxes.getBoundingBoxesByType(BBType.GroundTruth)
+        abs_coords = [box.getAbsoluteBoundingBox(format=BBFormat.XYC) for box in groundTruths]
+        x_values = [coord[0] for coord in abs_coords]
+        y_values = [coord[1] for coord in abs_coords]
+        plt.scatter(x_values, y_values, c="green", marker="+")
+
+    plt.ylim([632, -632])
+    plt.legend(labels)
+    plt.show()
 
 # Obsolete?
 def save_detect_to_txt(folder_path, save_dir, model, config_file, data_file, conv_back=False):
@@ -1232,17 +1340,33 @@ if __name__ == "__main__":
     # dets.drawAll(save_dir="save/bean_debug_long_untracked/")
 
     # Tracked
-    folder = "/media/deepwater/DATA/Shared/Louis/datasets/" + "haricot_debug_montoldre_2"
-    folder_txt = "data/haricot_debug_long_2.txt"
-    gts = Parser.parse_xml_folder(folder)
-    gts.mapLabels(fr_to_en)
-    gts.stats()
-    dets = performDetectOnFolderAndTrack(yolo, folder_txt, 0.5, max_age=10, min_hits=1)
-    dets = BoundingBoxes([det for det in dets if det.getImageName() in gts.getNames()])
-    Evaluator().printAPs(gts + dets)
-    Evaluator().printAPsByClass(gts + dets)
-    Evaluator().printAPsByClass(gts + dets, 3.7 / 100, EvaluationMethod.Distance)
-    dets.drawAll(save_dir="save/bean_debug_long_tracked_KF_aggr_1/")
+    # folder = "/media/deepwater/DATA/Shared/Louis/datasets/" + "haricot_debug_montoldre_2"
+    # folder_txt = "data/haricot_debug_long_2.txt"
+    # gts = Parser.parse_xml_folder(folder)
+    # gts.mapLabels(fr_to_en)
+    # gts.stats()
+    # dets, opt_flows = performDetectOnFolderAndTrack(yolo, folder_txt, 0.5, max_age=10, min_hits=1)
+    # filtered_dets = dets
+    # # filtered_dets = BoundingBoxes()
+    # # image_names = dets.getNames()
+    # # for i, name in enumerate(image_names[:-2]):
+    # #     current_image_boxes = dets.getBoundingBoxesByImageName(name)
+    # #     next_image_boxes = dets.getBoundingBoxesByImageName(image_names[i+1])
+    # #     opt_flow = opt_flows[i+1]
+    # #
+    # #     next_image_boxes = next_image_boxes.copy()
+    # #     [box.setImageName(name) for box in next_image_boxes]
+    # #     next_image_boxes = next_image_boxes.movedBy(-opt_flow[0], -opt_flow[1])
+    # #     filtered_boxes = nms(bboxes=(current_image_boxes + next_image_boxes), nms_thresh=0.5)
+    # #     filtered_dets += filtered_boxes.cliped() # Should add centerIn...
+    # #
+    # # filtered_dets += dets.getBoundingBoxesByImageName(image_names[-1])
+    #
+    # filtered_dets = BoundingBoxes([det for det in filtered_dets if det.getImageName() in gts.getNames()])
+    # Evaluator().printAPs(gts + filtered_dets)
+    # Evaluator().printAPsByClass(gts + filtered_dets)
+    # Evaluator().printAPsByClass(gts + filtered_dets, 3.7 / 100, EvaluationMethod.Distance)
+    # filtered_dets.drawAll(save_dir="save/bean_debug_long_tracked_KF_aggr_1/")
 
     # gts = Parser.parse_yolo_gt_folder(val_path)
     # gts.mapLabels(number_to_label)
@@ -1250,8 +1374,10 @@ if __name__ == "__main__":
     # Evaluator().printAPs(gts + dets)
     # Evaluator().printAPsByClass(gts + dets)
 
-    # drawConstellation(yolo, bean_long, nb_samples=2, offset=30)
-
+    # generate_opt_flow("data/haricot_debug_long_2.txt", name="data/opt_flow_last.txt")
+    # drawConstellation(maize_demo, nb_samples=100, offset=0)
+    # drawConstellationFlat("data/haricot_sequential.txt", "/media/deepwater/DATA/Shared/Louis/datasets/haricot_montoldre_sequential", "data/opt_flow_haricot_sequential.txt")
+    drawConstellationDet(yolo, "/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2", "data/haricot_debug_long_2.txt", opt_flow="data/opt_flow_last.txt")
 
     # tracker = Sort(max_age=3, min_hits=1)
     # mult = 2
