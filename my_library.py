@@ -12,6 +12,89 @@ import os
 from PIL import Image
 from BoxLibrary import *
 
+from scipy.optimize import linear_sum_assignment
+from collections.abc import MutableSequence
+
+class Tracker:
+    def __init__(self, min_confidence=0.8, min_points=5, min_distance=20, max_age=15):
+        self.min_points = min_points
+        self.min_confidence = min_confidence
+        self.min_distance = min_distance
+        self.max_age = max_age
+        self.tracks = []
+        self.optical_flows = []
+        self.acc_flow = (0, 0)
+
+    def update(self, detections, optical_flow):
+        acc_flow[0] += optical_flow[0]
+        acc_flow[1] += optical_flow[1]
+        self.optical_flows.append(optical_flow[0], optical_flow[1])
+
+        tracked_boxes = self.get_all_boxes()
+        detections.moveBy(-acc_flow[0], -acc_flow[1]) # Need to repair movedBy...
+
+        matches, unmatched_dets, _ = assignment_match_indices(detections, tracked_boxes, self.min_distance)
+
+        for (det_idx, trk_idk) in matches:
+            self.tracks[trk_idk].append(detections[det_idx])
+
+        for det_idx in unmatched_dets:
+            new_track = Track(history=[detections[det_idx]])
+            self.tracks.append(new_track)
+
+    def assignment_match_indices(detections, tracks, min_distance):
+        cost_matrix = np.array([[detection.distance(track) for track in tracks] for detection in detections])
+        dets_indices, tracks_indices = linear_sum_assignment(cost_matrix)
+
+        matches = np.array([[d, t] for d in dets_indices for t in tracks_indices if cost_matrix[d, t] < min_distance])
+        unmatched_dets = np.array([d for d in range(len(detections)) if d not in matches[:, 0]])
+        unmatched_tracks = np.array([t for t in range(len(tracks)) if t not in matches[:, 1]])
+
+        return matches, unmatched_dets, unmatched_tracks
+
+    def get_all_boxes(self):
+        return [track.barycenter_box() for track in self.tracks]
+
+    def get_alive_boxes(self):
+        return [track.barycenter_box() for track in self.tracks if track.is_alive]
+
+
+class Track(MutableSequence):
+    def __init__(self, history=None):
+        self.is_alive = True # Implement this...
+
+        if history = None:
+            self.history = []
+        else:
+            self.history = history
+
+    def __len__(self):
+        return len(self.history)
+
+    def __getitem__(self, index):
+        return self.history[index]
+
+    def __setitem__(self, index, item):
+        self.history[index] = item
+
+    def __delitem__(self, key):
+        del self.history[key]
+
+    def insert(self, index, item):
+        self.history.insert(index, item)
+
+    def mean_confidence(self):
+        return np.array([box.getConfidence() for box in history]).mean()
+
+    def barycenter_box(self):
+        assert len(self.history > 0) "Track is empty, can't compute barycenter."
+
+        boxes = np.array([box.getAbsoluteBoundingBox(format=BBFormat.XYC) for box in history])
+        box = boxes.mean(axis=0)
+
+        return BoundingBox(imageName="No name", classId=history[0].getClassId(), x=box[0], y=box[1], w=box[2], h=box[3], typeCoordinates=history[0].getCoordinatesType(), imgSize=history[0].getImageSize(), bbType=history[0].getBBType(), classConfidence=history[0].getConfidence(), format=BBFormat.XYC)
+
+
 def convert_to_grayscale(image):
     '''
     Convert an image (numpy array) to grayscale.
@@ -74,7 +157,7 @@ def generate_opt_flow(txt_file, name="opt_flow.txt"):
     h_stop = int(img_h * (1 - percent))
     w_start = int(img_w * percent)
     w_stop = int(img_w * (1 - percent))
-    
+
     past_image = past_image[h_start:h_stop, w_start:w_stop]
 
     opt_flow = None
