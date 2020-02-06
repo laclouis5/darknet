@@ -23,8 +23,11 @@ def optical_flow(image_1, image_2, prev_opt_flow=None):
     first_image = convert_to_grayscale(image_1)
     second_image = convert_to_grayscale(image_2)
 
+    flag = cv.OPTFLOW_USE_INITIAL_FLOW
+
     if prev_opt_flow is None:
         prev_opt_flow = np.zeros_like(first_image)
+        flag = 0
 
     optical_flow = cv.calcOpticalFlowFarneback(
         prev=first_image,
@@ -32,11 +35,11 @@ def optical_flow(image_1, image_2, prev_opt_flow=None):
         flow=prev_opt_flow,
         pyr_scale=0.5,
         levels=4,
-        winsize=32,
-        iterations=3,
+        winsize=8,
+        iterations=4,
         poly_n=5,
-        poly_sigma=1.2,
-        flags=0)
+        poly_sigma=1.1,
+        flags=flag)
 
     return optical_flow, image_2
 
@@ -45,12 +48,8 @@ def mean_opt_flow(optical_flow, mask=None):
         `mask` is a binary mask where locations where to compute optical_flow
         ar marked as True.
         """
-
         dx = optical_flow[..., 0]
         dy = optical_flow[..., 1]
-
-        temp_x = dx.sum() / dx.size
-        temp_y = dy.sum() / dy.size
 
         if mask is not None:
             dx = dx[mask]
@@ -60,6 +59,38 @@ def mean_opt_flow(optical_flow, mask=None):
         mean_dy = dy.sum() / dy.size
 
         return mean_dx, mean_dy
+
+def generate_opt_flow(txt_file, name="opt_flow.txt"):
+    percent = 0.2
+
+    images = []
+    with open(txt_file, "r") as f:
+        images = f.readlines()
+    images = [image.strip() for image in images]
+
+    past_image = cv.imread(images[0])
+    (img_h, img_w) = past_image.shape[:2]
+    h_start = int(img_h * percent)
+    h_stop = int(img_h * (1 - percent))
+    w_start = int(img_w * percent)
+    w_stop = int(img_w * (1 - percent))
+    
+    past_image = past_image[h_start:h_stop, w_start:w_stop]
+
+    opt_flow = None
+    opt_flows = [(0, 0)]
+
+
+    for image in images[1:]:
+        current_image = cv.imread(image)
+
+        opt_flow, past_image = optical_flow(past_image, current_image[h_start:h_stop, w_start:w_stop], opt_flow)
+        dx, dy = mean_opt_flow(opt_flow, mask=~egi_mask(current_image[h_start:h_stop, w_start:w_stop]))
+        opt_flows.append((dx, dy))
+
+    with open(name, "w") as f:
+        for (dx, dy) in opt_flows:
+            f.write("{} {}\n".format(dx, dy))
 
 def egi_mask(image, thresh=40):
     '''
@@ -267,13 +298,23 @@ def save_yolo_detect_to_txt(yolo_detections, save_name):
 
 def nms(bboxes, conf_thresh=0.25, nms_thresh=0.1):
     """
-    Wrapper for OpenCV NMS.
-    Takes as input a boundingBoxes object containg ONLY boxes for one images
-    and returns filtered boxes.
-    This function is not finished.
+    Wrapper for OpenCV NMS algorithm.
+
+    Parameters:
+        bboxes (BoundingBox):
+            The boxes for one particular image containing duplicate boxes.
+        conf_thresh (optional float):
+            The threshold on detected box confidence to remove false detections.
+        nms_thresh (optional float):
+            The threshold on box Intersection over Union for box merging. A value near 1 is less permissive than a value close to 0 as the IoU has to be higher to merge boxes.
+
+    Returns:
+        BoundingBoxes: The filtered boxes.
     """
+    assert len(bboxes.getNames()) == 1, "Func nms should be used on BoundingBoxes representing only one image"
+
     labels = bboxes.getClasses()
-    filtered_boxes = []
+    filtered_boxes = BoundingBoxes()
 
     for label in labels:
         boxes_label = bboxes.getBoundingBoxByClass(label)
@@ -285,11 +326,9 @@ def nms(bboxes, conf_thresh=0.25, nms_thresh=0.1):
         indices = [index for list in indices for index in list]
 
         boxes_to_keep = np.array(boxes_label)[indices]
-        boxes_to_keep = boxes_to_keep.tolist()
+        filtered_boxes += boxes_to_keep.tolist()
 
-        filtered_boxes += boxes_to_keep
-
-    return BoundingBoxes(bounding_boxes=filtered_boxes)
+    return filtered_boxes
 
 
 def remap_yolo_GT_file_labels(file_path, to_keep):
