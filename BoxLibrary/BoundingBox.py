@@ -5,9 +5,9 @@ class BoundingBox:
     """
     Represents a bounding box with a classId, associated to an image name and with an optional confidence.
 
-    Constructor Parameters:
+    Constructor:
         imageName (str):
-             The image name.
+            The image name.
         classId (str):
             The class id or label.
         x (float):
@@ -29,16 +29,16 @@ class BoundingBox:
         format (optional BBFormat):
             Enum (XYWH, XYX2Y2 or XYC) indicating the format of the coordinates of the bounding boxes. XYWH: <left> <top> <width> <height>, XYX2Y2: <left> <top> <right> <bottom>, XYC: <xCenter> <yCenter> <width> <height>.
     """
-    
+
     def __init__(self, imageName, classId, x, y, w, h, typeCoordinates=CoordinatesType.Absolute, imgSize=None, bbType=BBType.GroundTruth, classConfidence=None, format=BBFormat.XYWH):
         self._imageName = imageName
         self._typeCoordinates = typeCoordinates
         if typeCoordinates == CoordinatesType.Relative and imgSize is None:
             raise IOError(
-                'Parameter \'imgSize\' is required. It is necessary to inform the image size.')
+                "Parameter 'imgSize' is required. It is necessary to inform the image size.")
         if bbType == BBType.Detected and classConfidence is None:
             raise IOError(
-                'For bbType=\'Detection\', it is necessary to inform the classConfidence value.')
+                "For BBType.Detection, it is necessary to inform the classConfidence value.")
         # if classConfidence != None and (classConfidence < 0 or classConfidence > 1):
         # raise IOError('classConfidence value must be a real value between 0 and 1. Value: %f' %
         # classConfidence)
@@ -59,7 +59,7 @@ class BoundingBox:
                 self._height_img = imgSize[1]
             else:
                 raise IOError(
-                    'For relative coordinates, the format must be XYWH (x,y,width,height)')
+                    "For relative coordinates, the format must be XYWH (x,y,width,height)")
         # For absolute coords: (x,y,w,h)=real bb coords
         else:
             if format == BBFormat.XYWH:
@@ -104,7 +104,7 @@ class BoundingBox:
     def getRelativeBoundingBox(self, imgSize=None):
         if imgSize is None and (self._width_img is None or self._height_img) is None:
             raise IOError(
-                'Parameter \'imgSize\' is required. It is necessary to inform the image size.')
+                "Parameter 'imgSize' is required. It is necessary to inform the image size.")
         if imgSize is not None:
             return convertToRelativeValues((imgSize[0], imgSize[1]),
                                            (self._x, self._x2, self._y, self._y2))
@@ -133,9 +133,69 @@ class BoundingBox:
     def getBBType(self):
         return self._bbType
 
+    def setImageName(self, new_name):
+        self._imageName = new_name
+
     def getArea(self):
         area = (self._w + 1) * (self._h + 1)
         return area
+
+    def moveBy(self, dx, dy, typeCoordinates=CoordinatesType.Absolute, imgSize=None):
+        """
+        Moves the box by the vector (dx, dy). By default coordinates are in absolute values. If using relative coordinates you should specify an image size if not already stored in the BoundingBox object.
+
+        Parameters:
+            dx (float):
+                The horizontal offset.
+            dy (float):
+                The vertical offset.
+            typeCoordinates (optional CoordinatesType):
+                The type of coordinates used. If 'Relative', imgSize should be informed either as a property of BoundingBox or as parameter to this method.
+            imgSize (tuple(float, float)):
+                The image size: (widht, height).
+
+        Raises:
+            IOError: imgSize should be informed when using CoordinatesType.Relative.
+        """
+        if typeCoordinates == CoordinatesType.Relative \
+            and imgSize is None \
+            and (self._width_img is None or self._height_img) is None:
+            raise IOError("Parameter 'imgSize' is required. It is necessary to inform the image size.")
+
+        if typeCoordinates == CoordinatesType.Relative:
+            (img_width, img_height) = imgSize
+            dx = img_width * dx
+            dy = img_height * dy
+
+        self._x += dx
+        self._y += dy
+        self._x2 += dx
+        self._y2 += dy
+
+    def movedBy(self, dx, dy, typeCoordinates=CoordinatesType.Absolute, imgSize=None):
+        """
+        <!> DOESN'T WORK, MAYBE BECAUSE OF .COPY <!>
+        Moves the box by the vector (dx, dy). By default coordinates are in absolute values. If using relative coordinates you should specify an image size if not already stored in the BoundingBox object.
+
+        Parameters:
+            dx (float):
+                The horizontal offset.
+            dy (float):
+                The vertical offset.
+            typeCoordinates (optional CoordinatesType):
+                The type of coordinates used. If 'Relative', imgSize should be informed either as a property of BoundingBox or as parameter to this method.
+            imgSize (tuple(float, float)):
+                The image size: (widht, height).
+
+        Raises:
+            IOError: imgSize should be informed when using CoordinatesType.Relative
+
+        Returns:
+            BoundingBox: The moved box.
+        """
+        box = self.copy()
+        box.moveBy(dx, dy, typeCoordinates, imgSize)
+        return box
 
 
     def clip(self, size=None):
@@ -146,9 +206,9 @@ class BoundingBox:
             size (float, float): The width and height in absolute coordinates of the bounding frame. If size is None and an image size is specified in the BoundingBox object, the last in used.
         """
         if (self._width_img is None or self._height_img is None) and size is None:
-            raise IOError('Parameter \'size\' is required. It is necessary to inform the size.')
+            raise IOError("Parameter 'size' is required. It is necessary to inform the size.")
 
-        def clip(box, size):
+        def clippy(box, size):
             (xmin, ymin, xmax, ymax) = box.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
             if xmin < 0:
                 xmin = 0
@@ -167,9 +227,9 @@ class BoundingBox:
             box._h = ymax - ymin
 
         if size is not None:
-            clip(self, size)
+            clippy(self, size)
         else:
-            clip(self, self.getImageSize())
+            clippy(self, self.getImageSize())
 
     def cliped(self, size=None):
         """
@@ -197,7 +257,7 @@ class BoundingBox:
         """
 
         if (self._width_img is None or self._height_img is None) and rect is None:
-            raise IOError('Parameter \'rect\' is required. It is necessary to inform it.')
+            raise IOError("Parameter 'rect' is required. It is necessary to inform it.")
 
         def centerIsIn(x, y, rect):
             if x < rect[0]: return False
@@ -216,6 +276,15 @@ class BoundingBox:
             return centerIsIn(x, y, rect)
 
     def iou(self, other):
+        """
+        Returns the Intersection over Union of two boxes.
+
+        Parameters:
+            other (BoundingBox): The second box.
+
+        Returns:
+            float: The intersection over union
+        """
         boxA = self.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
         boxB = other.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
 
@@ -279,6 +348,15 @@ class BoundingBox:
         self._classId = new_class_id
 
     def description(self, type_coordinates=None, format=None):
+        """
+        Returns a string representing the box: "classId <optional confidence> coord1 coord2 coord3 coord4". The coordinates depends on the chosen format.
+
+        Parameters:
+            type_coordinates (optional CoordinatesType):
+                The coordinates to use, either Absolute or relative. If not specified, the value stored in the BoundingBox is used.
+            format (optional BBFormat):
+                The coordinates format to use: XYWH, XYC or XYX2Y2. If not specified, the value stored in the BoundingBox object is used.
+        """
         if type_coordinates is None:
             type_coordinates = self._typeCoordinates
         if format is None:
@@ -338,6 +416,9 @@ class BoundingBox:
         return image
 
     def copy(self):
+        """
+        The behavior of this method is obvious, why are you even reading the doc?
+        """
         return BoundingBox(
             self._imageName,
             self._classId,
