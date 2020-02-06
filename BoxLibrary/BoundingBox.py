@@ -338,7 +338,7 @@ class BoundingBox:
         cyb = (boxB[3] + boxB[1]) / 2
 
         vx = cxb - cxa
-        vy = cyb - cyb
+        vy = cyb - cya
 
         dist = sqrt(pow(vx, 2) + pow(vy, 2))
 
