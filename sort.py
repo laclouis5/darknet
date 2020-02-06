@@ -183,6 +183,7 @@ def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3):
     for d, det in enumerate(detections):
         if(d not in matched_indices[:, 0]):
             unmatched_detections.append(d)
+
     unmatched_trackers = []
     for t, trk in enumerate(trackers):
         if(t not in matched_indices[:, 1]):
@@ -190,6 +191,7 @@ def associate_detections_to_trackers(detections, trackers, iou_threshold=0.3):
 
     # filter out matched with low IOU
     matches = []
+
     for m in matched_indices:
         if(iou_matrix[m[0], m[1]] < iou_threshold):
             unmatched_detections.append(m[0])

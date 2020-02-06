@@ -1324,6 +1324,21 @@ if __name__ == "__main__":
         "haricot_tige": "stem_bean",
         "poireau_tige": "stem_leek"}
 
+    # tracks = BoundingBoxes([
+    #     BoundingBox(imageName="image1", classId="label", x=100, y=200, w=20, h=10, format=BBFormat.XYC),
+    #     BoundingBox(imageName="image1", classId="label", x=400, y=600, w=20, h=10, format=BBFormat.XYC),
+    # ])
+
+    # detections = BoundingBoxes([
+    #     BoundingBox(imageName="image1", classId="label", x=100, y=200, w=20, h=10, format=BBFormat.XYC),
+    #     BoundingBox(imageName="image1", classId="label", x=400, y=600, w=20, h=10, format=BBFormat.XYC),
+    # ])
+    #
+    # matches, undets, untracks = associate_detections_to_tracks(detections, tracks, min_distance=100)
+    # print(matches)
+    # print(undets)
+    # print(untracks)
+
     # _test_optical_flow(image_path)
 
     # Untracked
@@ -1377,7 +1392,7 @@ if __name__ == "__main__":
     # generate_opt_flow("data/haricot_debug_long_2.txt", name="data/opt_flow_last.txt")
     # drawConstellation(maize_demo, nb_samples=100, offset=0)
     # drawConstellationFlat("data/haricot_sequential.txt", "/media/deepwater/DATA/Shared/Louis/datasets/haricot_montoldre_sequential", "data/opt_flow_haricot_sequential.txt")
-    drawConstellationDet(yolo, "/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2", "data/haricot_debug_long_2.txt", opt_flow="data/opt_flow_last.txt")
+    # drawConstellationDet(yolo, "/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2", "data/haricot_debug_long_2.txt", opt_flow="data/opt_flow_last.txt")
 
     # tracker = Sort(max_age=3, min_hits=1)
     # mult = 2
