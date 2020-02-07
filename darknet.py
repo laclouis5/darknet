@@ -45,10 +45,11 @@ from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
 
-from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, mean_opt_flow, convert_to_grayscale, egi_mask, generate_opt_flow
+from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, mean_opt_flow, convert_to_grayscale, egi_mask, generate_opt_flow, Track, Tracker
 
 from BoxLibrary import *
 from sort import *
+
 
 def sample(probs):
     s = sum(probs)
@@ -713,7 +714,7 @@ def drawConstellationFlat(txt_file, folder, opt_flow):
     plt.ylim([632, 0])
     plt.show()
 
-def drawConstellationDet(network, gts_dir, txt_file, opt_flow, thresh=0.5):
+def drawConstellationDet(network, gts_dir, txt_file, opt_flow, label, thresh=0.5):
     # Opt flow stuff reading
     opt_flows = []
     with open(opt_flow, "r") as f:
@@ -732,7 +733,7 @@ def drawConstellationDet(network, gts_dir, txt_file, opt_flow, thresh=0.5):
     obj = network.meta
 
     # Gts parsing
-    gts = Parser.parse_xml_folder(gts_dir)
+    gts = Parser.parse_xml_folder(gts_dir, ["mais_tige"])
     gts.mapLabels(fr_to_en)
 
     # Detect
@@ -759,7 +760,7 @@ def drawConstellationDet(network, gts_dir, txt_file, opt_flow, thresh=0.5):
     labels = out_boxes.getClasses()
     cmap = plt.get_cmap("gist_rainbow")
 
-    for i, label in enumerate(["stem_bean"]):
+    for i, label in enumerate([label]):
         color = cmap(i * 1 / len(labels))
         boxes = out_boxes.getBoundingBoxByClass(label)
         detections = boxes.getBoundingBoxesByType(BBType.Detected)
@@ -1282,14 +1283,78 @@ def _test_optical_flow(folder):
 
         print("Dx: {}, Dy: {}".format(dx, dy))
 
+def detect_and_track_aggr(network, txt_file, optical_flow, label):
+    # Opt flow stuff reading
+    opt_flows = []
+    with open(optical_flow, "r") as f:
+        opt_flows = f.readlines()
+        opt_flows = [c.strip().split(" ") for c in opt_flows]
+        opt_flows = [(float(c[0]), float(c[1])) for c in opt_flows]
+
+    # Parse images in chronological order
+    images = []
+    with open(txt_file, "r") as f:
+        images = [c.strip() for c in f.readlines()]
+
+    # Yolo params
+    model = network.weights
+    cfg = network.cfg
+    obj = network.meta
+
+    # Tracker
+    tracker = Tracker()
+
+    for i, image in enumerate(images[:1000]):
+        detections = performDetect(image, thresh=0.5, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
+        boxes = Parser.parse_yolo_darknet_detections(detections, image, image_size(image), [label])
+        tracker.update(boxes, opt_flows[i])
+
+    tracker.print_stats_for_tracks(tracker.get_filtered_tracks())
+
+    return tracker.get_filtered_boxes()
+
+def gts_in_unique_ref(txt_file, folder, optical_flow, label):
+    opt_flows = []
+
+    with open(optical_flow, "r") as f:
+        opt_flows = f.readlines()
+        opt_flows = [c.strip().split(" ") for c in opt_flows]
+        opt_flows = [(float(c[0]), float(c[1])) for c in opt_flows]
+
+    dx, dy = 0, 0
+
+    boxes = Parser.parse_xml_folder(folder, ["haricot_tige"])
+    boxes.mapLabels({"haricot_tige": label})
+
+    out_boxes = BoundingBoxes()
+
+    images = []
+    with open(txt_file, "r") as f:
+        images = [c.strip() for c in f.readlines()]
+
+    for i, image in enumerate(images[:1000]):
+        opt_flow = opt_flows[i]
+        dx += opt_flow[0]
+        dy += opt_flow[1]
+
+        label_boxes = boxes.getBoundingBoxesByImageName(image)
+        # print(len(label_boxes))
+        out_boxes += label_boxes.movedBy(-dx, -dy)
+
+    return out_boxes
+
 if __name__ == "__main__":
     train_path = "data/train/"
     val_path = "data/val/"
 
-    bean_long = "data/haricot_debug_long.txt"
-    bean_long_folder = "data/haricot_debug_long"
-    maize_long = "data/mais_debug_long.txt"
-    maize_long_folder = "data/mais_debug_long"
+    bean_long = "data/haricot_debug_long_2.txt"
+    bean_long_folder = "/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2"
+    bean_opt_flow = "data/opt_flow_haricot.txt"
+
+    maize_long = "data/mais_debug_long_2.txt"
+    maize_long_folder = "/media/deepwater/DATA/Shared/Louis/datasets/mais_debug_montoldre_2"
+    maize_opt_flow = "data/opt_flow_mais.txt"
+
     maize_demo = "data/demo_mais.txt"
     maize_demo_folder = "data/demo_mais"
 
@@ -1323,6 +1388,35 @@ if __name__ == "__main__":
         "mais_tige": "stem_maize",
         "haricot_tige": "stem_bean",
         "poireau_tige": "stem_leek"}
+
+    plt.figure()
+
+    boxes = detect_and_track_aggr(yolo, bean_long, bean_opt_flow, "stem_bean")
+
+    x_values = []
+    y_values = []
+    mean_confidences = []
+
+    for box in boxes:
+        (x, y, _, _) = box.getAbsoluteBoundingBox(format=BBFormat.XYC)
+        x_values.append(x)
+        y_values.append(y)
+        mean_confidences.append(box.getConfidence())
+
+    plt.scatter(x_values, y_values, c="red")
+
+    gts = gts_in_unique_ref(bean_long, bean_long_folder, bean_opt_flow, "stem_bean")
+    x_values = []
+    y_values = []
+    for box in gts:
+        (x, y, _, _) = box.getAbsoluteBoundingBox(format=BBFormat.XYC)
+        x_values.append(x)
+        y_values.append(y)
+
+    plt.scatter(x_values, y_values, marker="+", c="green")
+
+    plt.ylim([1000, -200])
+    plt.show()
 
     # tracks = BoundingBoxes([
     #     BoundingBox(imageName="image1", classId="label", x=100, y=200, w=20, h=10, format=BBFormat.XYC),
@@ -1392,7 +1486,7 @@ if __name__ == "__main__":
     # generate_opt_flow("data/haricot_debug_long_2.txt", name="data/opt_flow_last.txt")
     # drawConstellation(maize_demo, nb_samples=100, offset=0)
     # drawConstellationFlat("data/haricot_sequential.txt", "/media/deepwater/DATA/Shared/Louis/datasets/haricot_montoldre_sequential", "data/opt_flow_haricot_sequential.txt")
-    # drawConstellationDet(yolo, "/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2", "data/haricot_debug_long_2.txt", opt_flow="data/opt_flow_last.txt")
+    # drawConstellationDet(yolo, maize_long_folder, maize_long, maize_opt_flow, "stem_maize")
 
     # tracker = Sort(max_age=3, min_hits=1)
     # mult = 2
