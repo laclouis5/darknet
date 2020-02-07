@@ -16,37 +16,61 @@ from scipy.optimize import linear_sum_assignment
 from collections.abc import MutableSequence
 
 class Tracker:
-    def __init__(self, min_confidence=0.8, min_points=5, min_distance=20, max_age=15):
+    # Can add: if box touches image border remove it
+
+    def __init__(self, min_confidence=0.8, min_points=15, min_distance=50):
         self.min_points = min_points
         self.min_confidence = min_confidence
         self.min_distance = min_distance
-        self.max_age = max_age
         self.tracks = []
         self.optical_flows = []
-        self.acc_flow = (0, 0)
+        self.acc_flow = [0, 0]
+        self.life_time = 0
 
     def update(self, detections, optical_flow):
-        acc_flow[0] += optical_flow[0]
-        acc_flow[1] += optical_flow[1]
-        self.optical_flows.append(optical_flow[0], optical_flow[1])
+        self.life_time += 1
+        self.acc_flow[0] += optical_flow[0]
+        self.acc_flow[1] += optical_flow[1]
+        self.optical_flows.append([optical_flow[0], optical_flow[1]])
+
+        print("Epoch: {}".format(self.life_time))
+        print("Len dets: {}".format(len(detections)))
+        print("Len tracks: {}".format(len(self.tracks)))
+        print("OF: {} {}".format(self.acc_flow[0], self.acc_flow[1]))
 
         tracked_boxes = self.get_all_boxes()
-        detections.moveBy(-acc_flow[0], -acc_flow[1]) # Need to repair movedBy...
+        detections.moveBy(-self.acc_flow[0], -self.acc_flow[1]) # Need to repair movedBy...
 
-        matches, unmatched_dets, _ = assignment_match_indices(detections, tracked_boxes, self.min_distance)
+        matches, unmatched_dets, unmatched_tracks = self.assignment_match_indices(detections, tracked_boxes, self.min_distance)
 
         for (det_idx, trk_idk) in matches:
             self.tracks[trk_idk].append(detections[det_idx])
 
+        print("unmatched dets: {}".format(unmatched_dets))
+        print("unmatched_tracks: {}".format(unmatched_tracks))
         for det_idx in unmatched_dets:
+            print("Det_idx: {}".format(det_idx))
             new_track = Track(history=[detections[det_idx]])
             self.tracks.append(new_track)
 
-    def assignment_match_indices(detections, tracks, min_distance):
+        for track in self.tracks:
+            (x, y, _, _) = track.barycenter_box().getAbsoluteBoundingBox(format=BBFormat.XYC)
+            print("Track: len: {}, pos: {} {}, conf: {}".format(len(track), x, y, track.mean_confidence()))
+
+    def assignment_match_indices(self, detections, tracks, min_distance):
+        if len(tracks) == 0:
+            return np.empty((0, 0), dtype=int), np.arange(len(detections)), np.empty((0, 0), dtype=int)
+        if len(detections) == 0:
+            return np.empty((0, 0), dtype=int), np.empty((0, 0), dtype=int), np.arange(len(tracks))
+
         cost_matrix = np.array([[detection.distance(track) for track in tracks] for detection in detections])
         dets_indices, tracks_indices = linear_sum_assignment(cost_matrix)
 
         matches = np.array([[d, t] for d in dets_indices for t in tracks_indices if cost_matrix[d, t] < min_distance])
+
+        if len(matches) == 0:
+            matches = np.empty((0, 2), dtype=int)
+
         unmatched_dets = np.array([d for d in range(len(detections)) if d not in matches[:, 0]])
         unmatched_tracks = np.array([t for t in range(len(tracks)) if t not in matches[:, 1]])
 
@@ -55,18 +79,34 @@ class Tracker:
     def get_all_boxes(self):
         return [track.barycenter_box() for track in self.tracks]
 
+    def get_filtered_boxes(self):
+        return [track.barycenter_box() for track in self.tracks if track.mean_confidence() > self.min_confidence and len(track) > self.min_points]
+
+    def get_filtered_tracks(self):
+        return [track for track in self.tracks if track.mean_confidence() > self.min_confidence and len(track) > self.min_points]
+
     def get_alive_boxes(self):
         return [track.barycenter_box() for track in self.tracks if track.is_alive]
 
+    def print_stats_for_tracks(self, tracks=None):
+        if tracks is None:
+            tracks = self.tracks
+
+        [print("Track n°{}: count: {}, conf: {}".format(track.track_id, len(track), track.mean_confidence())) for track in tracks]
+
 
 class Track(MutableSequence):
+    track_id = 0
     def __init__(self, history=None):
         self.is_alive = True # Implement this...
+        self.track_id = Track.track_id
 
-        if history = None:
+        if history == None:
             self.history = []
         else:
             self.history = history
+
+        Track.track_id += 1
 
     def __len__(self):
         return len(self.history)
@@ -84,15 +124,17 @@ class Track(MutableSequence):
         self.history.insert(index, item)
 
     def mean_confidence(self):
-        return np.array([box.getConfidence() for box in history]).mean()
+        return np.array([box.getConfidence() for box in self.history]).mean()
 
     def barycenter_box(self):
-        assert len(self.history > 0) "Track is empty, can't compute barycenter."
+        assert len(self.history) > 0, "Track is empty, cannot compute barycenter"
 
-        boxes = np.array([box.getAbsoluteBoundingBox(format=BBFormat.XYC) for box in history])
+        boxes = np.array([box.getAbsoluteBoundingBox(format=BBFormat.XYC) for box in self.history])
         box = boxes.mean(axis=0)
 
-        return BoundingBox(imageName="No name", classId=history[0].getClassId(), x=box[0], y=box[1], w=box[2], h=box[3], typeCoordinates=history[0].getCoordinatesType(), imgSize=history[0].getImageSize(), bbType=history[0].getBBType(), classConfidence=history[0].getConfidence(), format=BBFormat.XYC)
+        ref_box = self.history[0]
+
+        return BoundingBox(imageName="No name", classId=ref_box.getClassId(), x=box[0], y=box[1], w=box[2], h=box[3], typeCoordinates=ref_box.getCoordinatesType(), imgSize=ref_box.getImageSize(), bbType=ref_box.getBBType(), classConfidence=self.mean_confidence(), format=BBFormat.XYC)
 
 
 def convert_to_grayscale(image):
