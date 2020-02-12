@@ -455,6 +455,7 @@ int main(int argc, char **argv)
 
 #ifndef GPU
     gpu_index = -1;
+    init_cpu();
 #else
     if(gpu_index >= 0){
         cuda_set_device(gpu_index);

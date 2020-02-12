@@ -411,6 +411,7 @@ layer parse_yolo(list *options, size_params params)
 
     l.label_smooth_eps = option_find_float_quiet(options, "label_smooth_eps", 0.0f);
     l.scale_x_y = option_find_float_quiet(options, "scale_x_y", 1);
+    l.max_delta = option_find_float_quiet(options, "max_delta", FLT_MAX);   // set 10
     l.iou_normalizer = option_find_float_quiet(options, "iou_normalizer", 0.75);
     l.cls_normalizer = option_find_float_quiet(options, "cls_normalizer", 1);
     char *iou_loss = option_find_str_quiet(options, "iou_loss", "mse");   //  "iou");
@@ -506,6 +507,7 @@ layer parse_gaussian_yolo(list *options, size_params params) // Gaussian_YOLOv3
 
     l.label_smooth_eps = option_find_float_quiet(options, "label_smooth_eps", 0.0f);
     l.scale_x_y = option_find_float_quiet(options, "scale_x_y", 1);
+    l.max_delta = option_find_float_quiet(options, "max_delta", FLT_MAX);   // set 10
     l.uc_normalizer = option_find_float_quiet(options, "uc_normalizer", 1.0);
     l.iou_normalizer = option_find_float_quiet(options, "iou_normalizer", 0.75);
     l.cls_normalizer = option_find_float_quiet(options, "cls_normalizer", 1.0);
@@ -1199,6 +1201,7 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
     params.net = net;
     printf("batch = %d, time_steps = %d, train = %d \n", net.batch, net.time_steps, params.train);
 
+    int avg_outputs = 0;
     float bflops = 0;
     size_t workspace_size = 0;
     size_t max_inputs = 0;
@@ -1380,6 +1383,8 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
             }
         }
         if (l.bflops > 0) bflops += l.bflops;
+
+        avg_outputs += l.outputs;
     }
     free_list(sections);
 
@@ -1423,7 +1428,9 @@ network parse_network_cfg_custom(char *filename, int batch, int time_steps)
 
     net.outputs = get_network_output_size(net);
     net.output = get_network_output(net);
+    avg_outputs = avg_outputs / count;
     fprintf(stderr, "Total BFLOPS %5.3f \n", bflops);
+    fprintf(stderr, "avg_outputs = %d \n", avg_outputs);
 #ifdef GPU
     get_cuda_stream();
     get_cuda_memcpy_stream();
@@ -1544,7 +1551,6 @@ void save_shortcut_weights(layer l, FILE *fp)
 #endif
     int num = l.nweights;
     fwrite(l.weights, sizeof(float), num, fp);
-
 }
 
 void save_convolutional_weights(layer l, FILE *fp)
@@ -1822,14 +1828,12 @@ void load_convolutional_weights(layer l, FILE *fp)
 
 void load_shortcut_weights(layer l, FILE *fp)
 {
-    if (l.binary) {
-        //load_convolutional_weights_binary(l, fp);
-        //return;
-    }
     int num = l.nweights;
     int read_bytes;
     read_bytes = fread(l.weights, sizeof(float), num, fp);
     if (read_bytes > 0 && read_bytes < num) printf("\n Warning: Unexpected end of wights-file! l.weights - l.index = %d \n", l.index);
+    //for (int i = 0; i < l.nweights; ++i) printf(" %f, ", l.weights[i]);
+    //printf("\n\n");
 #ifdef GPU
     if (gpu_index >= 0) {
         push_shortcut_layer(l);

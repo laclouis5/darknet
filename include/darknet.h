@@ -102,7 +102,7 @@ typedef struct tree {
 
 // activations.h
 typedef enum {
-    LOGISTIC, RELU, RELIE, LINEAR, RAMP, TANH, PLSE, LEAKY, ELU, LOGGY, STAIR, HARDTAN, LHTAN, SELU, SWISH, MISH, NORM_CHAN, NORM_CHAN_SOFTMAX
+    LOGISTIC, RELU, RELIE, LINEAR, RAMP, TANH, PLSE, LEAKY, ELU, LOGGY, STAIR, HARDTAN, LHTAN, SELU, SWISH, MISH, NORM_CHAN, NORM_CHAN_SOFTMAX, NORM_CHAN_SOFTMAX_MAXVAL
 }ACTIVATION;
 
 // parser.h
@@ -369,6 +369,7 @@ struct layer {
     float *weight_updates;
 
     float scale_x_y;
+    float max_delta;
     float uc_normalizer;
     float iou_normalizer;
     float cls_normalizer;
@@ -928,6 +929,8 @@ LIB_API void rgbgr_image(image im);
 LIB_API image make_image(int w, int h, int c);
 LIB_API image load_image_color(char *filename, int w, int h);
 LIB_API void free_image(image m);
+LIB_API image crop_image(image im, int dx, int dy, int w, int h);
+LIB_API image resize_min(image im, int min);
 
 // layer.h
 LIB_API void free_layer_custom(layer l, int keep_cudnn_desc);

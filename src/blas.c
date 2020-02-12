@@ -79,7 +79,7 @@ void shortcut_multilayer_cpu(int size, int src_outputs, int batch, int n, int *o
     // nweights - l.n or l.n*l.c or (l.n*l.c*l.h*l.w)
     const int layer_step = nweights / (n + 1);    // 1 or l.c or (l.c * l.h * l.w)
     int step = 0;
-    if (weights) step = src_outputs / layer_step; // (l.c * l.h * l.w) or (l.w*l.h) or 1
+    if (nweights > 0) step = src_outputs / layer_step; // (l.c * l.h * l.w) or (l.w*l.h) or 1
 
     int id;
     #pragma omp parallel for
@@ -90,7 +90,7 @@ void shortcut_multilayer_cpu(int size, int src_outputs, int batch, int n, int *o
         src_id /= src_outputs;
         int src_b = src_id;
 
-        float sum = 1, max_val = -INFINITY;
+        float sum = 1, max_val = -FLT_MAX;
         int i;
         if (weights && weights_normalizion) {
             if (weights_normalizion == SOFTMAX_NORMALIZATION) {
@@ -148,7 +148,7 @@ void backward_shortcut_multilayer_cpu(int size, int src_outputs, int batch, int 
     // nweights - l.n or l.n*l.c or (l.n*l.c*l.h*l.w)
     const int layer_step = nweights / (n + 1);    // 1 or l.c or (l.c * l.h * l.w)
     int step = 0;
-    if (weights) step = src_outputs / layer_step; // (l.c * l.h * l.w) or (l.w*l.h) or 1
+    if (nweights > 0) step = src_outputs / layer_step; // (l.c * l.h * l.w) or (l.w*l.h) or 1
 
     int id;
     #pragma omp parallel for
@@ -158,7 +158,7 @@ void backward_shortcut_multilayer_cpu(int size, int src_outputs, int batch, int 
         src_id /= src_outputs;
         int src_b = src_id;
 
-        float grad = 1, sum = 1, max_val = -INFINITY;
+        float grad = 1, sum = 1, max_val = -FLT_MAX;;
         int i;
         if (weights && weights_normalizion) {
             if (weights_normalizion == SOFTMAX_NORMALIZATION) {
