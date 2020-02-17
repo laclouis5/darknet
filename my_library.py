@@ -17,11 +17,11 @@ from collections.abc import MutableSequence
 
 class Tracker:
     # Can add: if box touches image border remove it
-
-    def __init__(self, min_confidence=0.8, min_points=15, min_distance=50):
+    # Can change distance threshold to be adatative
+    def __init__(self, min_confidence=0.5, min_points=10, dist_thresh=7.5/100):
         self.min_points = min_points
         self.min_confidence = min_confidence
-        self.min_distance = min_distance
+        self.dist_thresh = dist_thresh
         self.tracks = []
         self.optical_flows = []
         self.acc_flow = [0, 0]
@@ -39,9 +39,9 @@ class Tracker:
         print("OF: {} {}".format(self.acc_flow[0], self.acc_flow[1]))
 
         tracked_boxes = self.get_all_boxes()
-        detections.moveBy(-self.acc_flow[0], -self.acc_flow[1]) # Need to repair movedBy...
+        detections.moveBy(-self.acc_flow[0], -self.acc_flow[1])
 
-        matches, unmatched_dets, unmatched_tracks = self.assignment_match_indices(detections, tracked_boxes, self.min_distance)
+        matches, unmatched_dets, unmatched_tracks = self.assignment_match_indices(detections, tracked_boxes)
 
         for (det_idx, trk_idk) in matches:
             self.tracks[trk_idk].append(detections[det_idx])
@@ -57,16 +57,18 @@ class Tracker:
             (x, y, _, _) = track.barycenter_box().getAbsoluteBoundingBox(format=BBFormat.XYC)
             print("Track: len: {}, pos: {} {}, conf: {}".format(len(track), x, y, track.mean_confidence()))
 
-    def assignment_match_indices(self, detections, tracks, min_distance):
+    def assignment_match_indices(self, detections, tracks):
         if len(tracks) == 0:
             return np.empty((0, 0), dtype=int), np.arange(len(detections)), np.empty((0, 0), dtype=int)
         if len(detections) == 0:
             return np.empty((0, 0), dtype=int), np.empty((0, 0), dtype=int), np.arange(len(tracks))
 
+        max_dist = self.dist_thresh * min(detections[0].getImageSize())
+
         cost_matrix = np.array([[detection.distance(track) for track in tracks] for detection in detections])
         dets_indices, tracks_indices = linear_sum_assignment(cost_matrix)
 
-        matches = np.array([[d, t] for d in dets_indices for t in tracks_indices if cost_matrix[d, t] < min_distance])
+        matches = np.array([[d, t] for d in dets_indices for t in tracks_indices if cost_matrix[d, t] < max_dist])
 
         if len(matches) == 0:
             matches = np.empty((0, 2), dtype=int)
@@ -80,7 +82,7 @@ class Tracker:
         return [track.barycenter_box() for track in self.tracks]
 
     def get_filtered_boxes(self):
-        return [track.barycenter_box() for track in self.tracks if track.mean_confidence() > self.min_confidence and len(track) > self.min_points]
+        return BoundingBoxes([track.barycenter_box() for track in self.tracks if track.mean_confidence() > self.min_confidence and len(track) > self.min_points])
 
     def get_filtered_tracks(self):
         return [track for track in self.tracks if track.mean_confidence() > self.min_confidence and len(track) > self.min_points]
@@ -183,6 +185,12 @@ def mean_opt_flow(optical_flow, mask=None):
         mean_dx = dx.sum() / dx.size
         mean_dy = dy.sum() / dy.size
 
+        # hist_x, _ = np.histogram(dx.ravel(), 200)
+        # hist_y, _ = np.histogram(dy.ravel(), 200)
+        #
+        # mean_dx = hist_x.max()
+        # mean_dy = hist_y.max()
+
         return mean_dx, mean_dy
 
 def generate_opt_flow(txt_file, name="opt_flow.txt"):
@@ -197,14 +205,13 @@ def generate_opt_flow(txt_file, name="opt_flow.txt"):
     (img_h, img_w) = past_image.shape[:2]
     h_start = int(img_h * percent)
     h_stop = int(img_h * (1 - percent))
-    w_start = int(img_w * percent)
-    w_stop = int(img_w * (1 - percent))
+    w_start = int(img_w * percent) + 70
+    w_stop = int(img_w * (1 - percent)) + 70
 
     past_image = past_image[h_start:h_stop, w_start:w_stop]
 
     opt_flow = None
     opt_flows = [(0, 0)]
-
 
     for image in images[1:]:
         current_image = cv.imread(image)

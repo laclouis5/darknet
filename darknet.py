@@ -1284,6 +1284,9 @@ def _test_optical_flow(folder):
         print("Dx: {}, Dy: {}".format(dx, dy))
 
 def detect_and_track_aggr(network, txt_file, optical_flow, label):
+    """
+    Tracking by aggregation.
+    """
     # Opt flow stuff reading
     opt_flows = []
     with open(optical_flow, "r") as f:
@@ -1323,8 +1326,11 @@ def gts_in_unique_ref(txt_file, folder, optical_flow, label):
 
     dx, dy = 0, 0
 
-    boxes = Parser.parse_xml_folder(folder, ["haricot_tige"])
-    boxes.mapLabels({"haricot_tige": label})
+    boxes = Parser.parse_yolo_gt_folder(folder, [label_to_number[label]])
+    boxes.mapLabels(number_to_label)
+
+    # boxes = Parser.parse_xml_folder(folder, ["mais_tige"])
+    # boxes.mapLabels({"mais_tige": label})
 
     out_boxes = BoundingBoxes()
 
@@ -1338,10 +1344,91 @@ def gts_in_unique_ref(txt_file, folder, optical_flow, label):
         dy += opt_flow[1]
 
         label_boxes = boxes.getBoundingBoxesByImageName(image)
-        # print(len(label_boxes))
+
         out_boxes += label_boxes.movedBy(-dx, -dy)
 
+
     return out_boxes
+
+def associate_boxes_with_image(txt_file, optical_flow, boxes):
+    images = []
+    with open(txt_file, "r") as f:
+        images = [c.strip() for c in f.readlines()]
+
+    opt_flows = []
+    with open(optical_flow, "r") as f:
+        opt_flows = f.readlines()
+        opt_flows = [c.strip().split(" ") for c in opt_flows]
+        opt_flows = [(float(c[0]), float(c[1])) for c in opt_flows]
+
+    (img_width, img_height) = image_size(images[0])
+    xmin, ymin, xmax, ymax = 0, 0, img_width, img_height
+    dx, dy = 0, 0
+
+    out_boxes = BoundingBoxes()
+
+    for i, image in enumerate(images):
+        opt_flow = opt_flows[i]
+        dx = opt_flow[0]
+        dy = opt_flow[1]
+
+        xmin -= dx
+        ymin -= dy
+        xmax -= dx
+        ymax -= dy
+
+        # print("IMAGE: {}".format(image))
+        # print("FRAME: {}".format([xmin, ymin, xmax, ymax]))
+
+        image_boxes = boxes.boxes_in([xmin, ymin, xmax, ymax])
+        image_boxes = image_boxes.movedBy(-xmin, -ymin)
+        # print("LEN BOXES IN: {}".format(len(image_boxes)))
+        # [print(box.getAbsoluteBoundingBox(format=BBFormat.XYC)) for box in image_boxes]
+
+        for box in image_boxes:
+            (x, y, w, h) = box.getAbsoluteBoundingBox()
+            out_boxes.append(BoundingBox(imageName=image, classId=box.getClassId(), x=x, y=y, w=w, h=h, imgSize=box.getImageSize(), bbType=BBType.Detected, classConfidence=box.getConfidence()))
+
+    return out_boxes
+
+def optical_flow_visualisation(txt_file):
+    images = []
+    with open(txt_file, "r") as f:
+        images = [c.strip() for c in f.readlines()]
+
+    image_1 = cv.imread(images[10])
+    image_2 = cv.imread(images[11])
+    # image_1 = cv.cvtColor(image_1, cv.COLOR_BGR2RGB)
+    # image_2 = cv.cvtColor(image_2, cv.COLOR_BGR2RGB)
+    # image_1 = cv.resize(image_1, (632, 632), interpolation=cv.INTER_AREA)
+    # image_2 = cv.resize(image_2, (632, 632), interpolation=cv.INTER_AREA)
+
+    egi_2 = egi_mask(image_2)
+
+    opt_flow, _ = optical_flow(image_1, image_2)
+    x_flow = opt_flow[:, :, 0]
+    y_flow = opt_flow[:, :, 1]
+
+    percent = 0.2
+    (img_h, img_w) = image_2.shape[:2]
+    h_start = int(img_h * percent)
+    h_stop = int(img_h * (1 - percent))
+    w_start = int(img_w * percent)
+    w_stop = int(img_w * (1 - percent))
+
+    # x_flow = np.array(x_flow[h_start:h_stop, w_start+70:w_stop+70])
+    # data = x_flow[~egi_2[h_start:h_stop, w_start+70:w_stop+70]]
+    # data = x_flow * ~egi_2[h_start:h_stop, w_start+70:w_stop+70]
+
+    # abs = np.arange(632)[w_start+70:w_stop+70]
+
+    plt.figure()
+    # plt.hist(x_flow.ravel(), 200)
+    plt.imshow(x_flow)
+    # plt.plot(np.array(x_flow[800:1000, :1400]).mean(axis=0))
+    # plt.ylim([0, 30])
+    # plt.imshow(data)
+    plt.show()
 
 if __name__ == "__main__":
     train_path = "data/train/"
@@ -1357,9 +1444,12 @@ if __name__ == "__main__":
 
     maize_demo = "data/demo_mais.txt"
     maize_demo_folder = "data/demo_mais"
+    maize_demo_opt_flow = "data/opt_flow_demo_mais.txt"
 
     # model_path = "results/yolo_v3_spp_pan_csr50_3"
-    model_path = "results/yolo_v3_pan_csr50_optimal_2" # BDD 4.2
+    # model_path = "results/yolo_v3_pan_csr50_optimal_2" # BDD 4.2
+    # model_path = "results/yolo_v3_pan_csr50_optimal_3" # BDD 6.0
+    model_path = "results/yolo_v3_tiny_pan3_8/" # BDD 6.0
     yolo = YoloModelPath(model_path)
 
     yolo_1 = {
@@ -1389,34 +1479,46 @@ if __name__ == "__main__":
         "haricot_tige": "stem_bean",
         "poireau_tige": "stem_leek"}
 
-    plt.figure()
+    # optical_flow_visualisation(bean_long)
+    # generate_opt_flow(bean_long, name="data/opt_flow_haricot.txt")
+    #
+    # boxes = detect_and_track_aggr(yolo, bean_long, bean_opt_flow, "stem_bean")
+    # boxes = nms(boxes, nms_thresh=0.3)
+    #
+    # dets = associate_boxes_with_image(bean_long, bean_opt_flow, boxes)
+    # # [print(box.getImageName(), box.getClassId(), box.getConfidence()) for box in dets]
+    # gts = Parser.parse_xml_folder(bean_long_folder, ["haricot_tige"])
+    # gts.mapLabels(fr_to_en)
+    # # [print(box.getImageName(), box.getClassId()) for box in gts]
+    # # [print(box.getAbsoluteBoundingBox(format=BBFormat.XYC)) for box in gts]
+    # Evaluator().printAPsByClass((dets + gts), thresh=7.5/100, method=EvaluationMethod.Distance)
+    # (dets).drawAll(save_dir="save/aggr_tracking/")
 
-    boxes = detect_and_track_aggr(yolo, bean_long, bean_opt_flow, "stem_bean")
-
-    x_values = []
-    y_values = []
-    mean_confidences = []
-
-    for box in boxes:
-        (x, y, _, _) = box.getAbsoluteBoundingBox(format=BBFormat.XYC)
-        x_values.append(x)
-        y_values.append(y)
-        mean_confidences.append(box.getConfidence())
-
-    plt.scatter(x_values, y_values, c="red")
-
-    gts = gts_in_unique_ref(bean_long, bean_long_folder, bean_opt_flow, "stem_bean")
-    x_values = []
-    y_values = []
-    for box in gts:
-        (x, y, _, _) = box.getAbsoluteBoundingBox(format=BBFormat.XYC)
-        x_values.append(x)
-        y_values.append(y)
-
-    plt.scatter(x_values, y_values, marker="+", c="green")
-
-    plt.ylim([1000, -200])
-    plt.show()
+    # plt.figure()
+    # x_values = []
+    # y_values = []
+    # mean_confidences = []
+    #
+    # for box in boxes:
+    #     (x, y, _, _) = box.getAbsoluteBoundingBox(format=BBFormat.XYC)
+    #     x_values.append(x)
+    #     y_values.append(y)
+    #     mean_confidences.append(box.getConfidence())
+    #
+    # plt.scatter(x_values, y_values, c="red")
+    #
+    # gts = gts_in_unique_ref(maize_demo, maize_demo_folder, maize_demo_opt_flow, "stem_maize")
+    # x_values = []
+    # y_values = []
+    # for box in gts:
+    #     (x, y, _, _) = box.getAbsoluteBoundingBox(format=BBFormat.XYC)
+    #     x_values.append(x)
+    #     y_values.append(y)
+    #
+    # plt.scatter(x_values, y_values, marker="+", c="green")
+    #
+    # plt.ylim([1000, -200])
+    # plt.show()
 
     # tracks = BoundingBoxes([
     #     BoundingBox(imageName="image1", classId="label", x=100, y=200, w=20, h=10, format=BBFormat.XYC),
@@ -1477,11 +1579,11 @@ if __name__ == "__main__":
     # Evaluator().printAPsByClass(gts + filtered_dets, 3.7 / 100, EvaluationMethod.Distance)
     # filtered_dets.drawAll(save_dir="save/bean_debug_long_tracked_KF_aggr_1/")
 
-    # gts = Parser.parse_yolo_gt_folder(val_path)
-    # gts.mapLabels(number_to_label)
-    # dets = performDetectOnFolder(yolo, val_path, conf_thresh=0.005)
-    # Evaluator().printAPs(gts + dets)
-    # Evaluator().printAPsByClass(gts + dets)
+    gts = Parser.parse_yolo_gt_folder(val_path)
+    gts.mapLabels(number_to_label)
+    dets = performDetectOnFolder(yolo, val_path, conf_thresh=5/100)
+    Evaluator().printAPs(gts + dets)
+    Evaluator().printAPsByClass(gts + dets)
 
     # generate_opt_flow("data/haricot_debug_long_2.txt", name="data/opt_flow_last.txt")
     # drawConstellation(maize_demo, nb_samples=100, offset=0)
