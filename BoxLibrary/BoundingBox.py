@@ -1,5 +1,6 @@
 from .utils import *
 from math import sqrt
+import copy
 
 class BoundingBox:
     """
@@ -419,15 +420,4 @@ class BoundingBox:
         """
         The behavior of this method is obvious, why are you even reading the doc?
         """
-        return BoundingBox(
-            self._imageName,
-            self._classId,
-            self._x,
-            self._y,
-            self._w,
-            self._h,
-            typeCoordinates=self._typeCoordinates,
-            imgSize=self.getImageSize(),
-            bbType=self._bbType,
-            classConfidence=self._classConfidence,
-            format=BBFormat.XYWH)
+        return copy.deepcopy(self)

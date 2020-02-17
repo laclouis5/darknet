@@ -166,6 +166,15 @@ class BoundingBoxes(MutableSequence):
         for box in self:
             box.moveBy(dx, dy, typeCoordinates, imgSize)
 
+    def boxes_in(self, rect):
+        boxes = []
+
+        for box in self:
+            if box.centerIsIn(rect):
+                boxes.append(box)
+
+        return BoundingBoxes(boxes)
+
     def shuffleBoundingBoxes(self):
         shuffle(self._boundingBoxes)
 
