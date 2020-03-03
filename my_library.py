@@ -18,7 +18,7 @@ from collections.abc import MutableSequence
 class Tracker:
     # Can add: if box touches image border remove it
     # Can change distance threshold to be adatative
-    def __init__(self, min_confidence=0.5, min_points=10, dist_thresh=7.5/100):
+    def __init__(self, min_confidence=0.25, min_points=10, dist_thresh=7.5/100):
         self.min_points = min_points
         self.min_confidence = min_confidence
         self.dist_thresh = dist_thresh
@@ -39,6 +39,7 @@ class Tracker:
         print("OF: {} {}".format(self.acc_flow[0], self.acc_flow[1]))
 
         tracked_boxes = self.get_all_boxes()
+        detections = nms(detections, conf_thresh=self.min_confidence, nms_thresh=0.2)
         detections.moveBy(-self.acc_flow[0], -self.acc_flow[1])
 
         matches, unmatched_dets, unmatched_tracks = self.assignment_match_indices(detections, tracked_boxes)
@@ -138,6 +139,118 @@ class Track(MutableSequence):
 
         return BoundingBox(imageName="No name", classId=ref_box.getClassId(), x=box[0], y=box[1], w=box[2], h=box[3], typeCoordinates=ref_box.getCoordinatesType(), imgSize=ref_box.getImageSize(), bbType=ref_box.getBBType(), classConfidence=self.mean_confidence(), format=BBFormat.XYC)
 
+def gts_in_unique_ref(txt_file, folder, optical_flow, label):
+    opt_flows = []
+
+    with open(optical_flow, "r") as f:
+        opt_flows = f.readlines()
+        opt_flows = [c.strip().split(" ") for c in opt_flows]
+        opt_flows = [(float(c[0]), float(c[1])) for c in opt_flows]
+
+    dx, dy = 0, 0
+
+    boxes = Parser.parse_yolo_gt_folder(folder, [label_to_number[label]])
+    boxes.mapLabels(number_to_label)
+
+    # boxes = Parser.parse_xml_folder(folder, ["mais_tige"])
+    # boxes.mapLabels({"mais_tige": label})
+
+    out_boxes = BoundingBoxes()
+
+    images = []
+    with open(txt_file, "r") as f:
+        images = [c.strip() for c in f.readlines()]
+
+    for i, image in enumerate(images[:1000]):
+        opt_flow = opt_flows[i]
+        dx += opt_flow[0]
+        dy += opt_flow[1]
+
+        label_boxes = boxes.getBoundingBoxesByImageName(image)
+
+        out_boxes += label_boxes.movedBy(-dx, -dy)
+
+
+    return out_boxes
+
+def associate_boxes_with_image(txt_file, optical_flow, boxes):
+    images = []
+    with open(txt_file, "r") as f:
+        images = [c.strip() for c in f.readlines()]
+
+    opt_flows = []
+    with open(optical_flow, "r") as f:
+        opt_flows = f.readlines()
+        opt_flows = [c.strip().split(" ") for c in opt_flows]
+        opt_flows = [(float(c[0]), float(c[1])) for c in opt_flows]
+
+    (img_width, img_height) = image_size(images[0])
+    xmin, ymin, xmax, ymax = 0, 0, img_width, img_height
+
+    out_boxes = BoundingBoxes()
+
+    for i, image in enumerate(images):
+        opt_flow = opt_flows[i]
+        dx = opt_flow[0]
+        dy = opt_flow[1]
+
+        xmin -= dx
+        ymin -= dy
+        xmax -= dx
+        ymax -= dy
+
+        # print("IMAGE: {}".format(image))
+        # print("FRAME: {}".format([xmin, ymin, xmax, ymax]))
+
+        image_boxes = boxes.boxes_in([xmin, ymin, xmax, ymax])
+        image_boxes = image_boxes.movedBy(-xmin, -ymin)
+        # print("LEN BOXES IN: {}".format(len(image_boxes)))
+        # [print(box.getAbsoluteBoundingBox(format=BBFormat.XYC)) for box in image_boxes]
+
+        for box in image_boxes:
+            (x, y, w, h) = box.getAbsoluteBoundingBox()
+            out_boxes.append(BoundingBox(imageName=image, classId=box.getClassId(), x=x, y=y, w=w, h=h, imgSize=box.getImageSize(), bbType=BBType.Detected, classConfidence=box.getConfidence()))
+
+    return out_boxes
+
+def optical_flow_visualisation(txt_file):
+    images = []
+    with open(txt_file, "r") as f:
+        images = [c.strip() for c in f.readlines()]
+
+    image_1 = cv.imread(images[10])
+    image_2 = cv.imread(images[11])
+    # image_1 = cv.cvtColor(image_1, cv.COLOR_BGR2RGB)
+    # image_2 = cv.cvtColor(image_2, cv.COLOR_BGR2RGB)
+    # image_1 = cv.resize(image_1, (632, 632), interpolation=cv.INTER_AREA)
+    # image_2 = cv.resize(image_2, (632, 632), interpolation=cv.INTER_AREA)
+
+    egi_2 = egi_mask(image_2)
+
+    opt_flow, _ = optical_flow(image_1, image_2)
+    x_flow = opt_flow[:, :, 0]
+    y_flow = opt_flow[:, :, 1]
+
+    percent = 0.2
+    (img_h, img_w) = image_2.shape[:2]
+    h_start = int(img_h * percent)
+    h_stop = int(img_h * (1 - percent))
+    w_start = int(img_w * percent)
+    w_stop = int(img_w * (1 - percent))
+
+    # x_flow = np.array(x_flow[h_start:h_stop, w_start+70:w_stop+70])
+    # data = x_flow[~egi_2[h_start:h_stop, w_start+70:w_stop+70]]
+    # data = x_flow * ~egi_2[h_start:h_stop, w_start+70:w_stop+70]
+
+    # abs = np.arange(632)[w_start+70:w_stop+70]
+
+    plt.figure()
+    # plt.hist(x_flow.ravel(), 200)
+    plt.imshow(x_flow)
+    # plt.plot(np.array(x_flow[800:1000, :1400]).mean(axis=0))
+    # plt.ylim([0, 30])
+    # plt.imshow(data)
+    plt.show()
 
 def convert_to_grayscale(image):
     '''
@@ -428,7 +541,7 @@ def save_yolo_detect_to_txt(yolo_detections, save_name):
         f.writelines(lines)
 
 
-def nms(bboxes, conf_thresh=0.25, nms_thresh=0.1):
+def nms(bboxes, conf_thresh=0.25, nms_thresh=0.3):
     """
     Wrapper for OpenCV NMS algorithm.
 
@@ -443,7 +556,7 @@ def nms(bboxes, conf_thresh=0.25, nms_thresh=0.1):
     Returns:
         BoundingBoxes: The filtered boxes.
     """
-    assert len(bboxes.getNames()) == 1, "Func nms should be used on BoundingBoxes representing only one image"
+    assert len(bboxes.getNames()) <= 1, "Func nms should be used on BoundingBoxes representing only one image. Image names received: {}".format(bboxes.getNames())
 
     labels = bboxes.getClasses()
     filtered_boxes = BoundingBoxes()
@@ -637,3 +750,29 @@ def clip_box_to_size(box, size):
         new_y = y - (ymax - im_h)
 
     return  (new_x, new_y, new_w, new_h)
+
+def basler3M_calibration_maps(image_size=None):
+    """
+    Use image_size=None if working with images in original resolution (2048x1536).
+    If not, specify the real image size.
+    """
+
+    original_img_size = (2048, 1536)
+
+    mtx = np.array([[1846.48412, 0.0,        1044.42589],
+                    [0.0,        1848.52060, 702.441180],
+                    [0.0,        0.0,        1.0]])
+
+    dist = np.array([[-0.19601338, 0.07861078, 0.00182995, -0.00168376, 0.02604818]])
+
+    new_camera_matrix, _ = cv.getOptimalNewCameraMatrix(mtx, dist, original_img_size, 0, original_img_size)
+    mapx, mapy = cv.initUndistortRectifyMap(mtx, dist, None, new_camera_matrix, original_img_size, m1type=cv.CV_32FC1)
+
+    if image_size is not None:
+        mapx = cv.resize(mapx, (image_size[0], image_size[1])) * image_size[0] / original_img_size[0]
+        mapy = cv.resize(mapy, (image_size[0], image_size[1])) * image_size[1] / original_img_size[1]
+
+    return (mapx, mapy)
+
+def calibrated(img, mapx, mapy):
+    return cv.remap(img, mapx, mapy, interpolation=cv.INTER_CUBIC)
