@@ -15,6 +15,8 @@ from BoxLibrary import *
 from scipy.optimize import linear_sum_assignment
 from collections.abc import MutableSequence
 
+from reg_plane import fit_plane, reg_score
+
 class Tracker:
     # Can add: if box touches image border remove it
     # Can change distance threshold to be adatative
@@ -298,13 +300,81 @@ def mean_opt_flow(optical_flow, mask=None):
         mean_dx = dx.sum() / dx.size
         mean_dy = dy.sum() / dy.size
 
-        # hist_x, _ = np.histogram(dx.ravel(), 200)
-        # hist_y, _ = np.histogram(dy.ravel(), 200)
-        #
-        # mean_dx = hist_x.max()
-        # mean_dy = hist_y.max()
-
         return mean_dx, mean_dy
+
+def opt_flow_plane(txt_file):
+    images = []
+    with open(txt_file, "r") as f:
+        images = f.readlines()
+    images = [image.strip() for image in images]
+
+    first_image = cv.imread(images[0])
+    (img_h, img_w) = first_image.shape[:2]
+
+    xmin = int(img_w * 0.2)
+    xmax = int(img_w * 0.9)
+    ymin = int(img_h * 0.1)
+    ymax = int(img_h * 0.9)
+
+    base_mask = np.full(first_image.shape[:2], False)
+    base_mask[ymin:ymax:, xmin:xmax] = True
+
+    opflow = None
+
+    X, Y = np.meshgrid(np.arange(0, img_w), np.arange(0, img_h))
+
+    for image in images[1:]:
+        second_image = cv.imread(image)
+
+        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
+        egi = np.uint8(egi_mask(first_image) * 255)
+        egi = cv.dilate(egi, kernel, iterations=5)
+        egi = egi.astype(np.bool)
+
+        mask = ~egi & base_mask
+
+        opflow, tmp = optical_flow(first_image, second_image,
+            prev_opt_flow=opflow)
+
+        dX, dY = opflow[..., 0], opflow[..., 1]
+
+        coeffs_X = fit_plane(X, Y, dX, mask)
+        coeffs_Y = fit_plane(X, Y, dY, mask)
+
+        fX = coeffs_X[0] * X + coeffs_X[1] * Y + coeffs_X[2]
+        fY = coeffs_Y[0] * X + coeffs_Y[1] * Y + coeffs_Y[2]
+
+        R2_X = reg_score(dX, fX, mask)
+        R2_Y = reg_score(dY, fY, mask)
+
+        c_x = coeffs_X[0] * img_w / 2 + coeffs_X[1] * img_h / 2 + coeffs_X[2]
+        c_y = coeffs_Y[0] * img_w / 2 + coeffs_Y[1] * img_h / 2 + coeffs_Y[2]
+
+        print("Eq. X: {:.3}*X + {:.3}*Y + {:.3}".format(*coeffs_X))
+        print("Eq. Y: {:.3}*X + {:.3}*Y + {:.3}".format(*coeffs_Y))
+        print("R² X: {:.2%}".format(R2_X))
+        print("R² Y: {:.2%}".format(R2_Y))
+        print("Optical Flow Center X: {}".format(c_x))
+        print("Optical Flow Center Y: {}".format(c_y))
+        print()
+
+        from mpl_toolkits import mplot3d
+        x = X[::8, ::8].reshape(-1, 1)
+        y = Y[::8, ::8].reshape(-1, 1)
+        z1 = (dX[::8, ::8] * mask[::8, ::8]).reshape(-1, 1)
+        z2 = (dY[::8, ::8] * mask[::8, ::8]).reshape(-1, 1)
+        colors = cv.cvtColor(first_image[::8, ::8, :], cv.COLOR_BGR2RGB)
+        colors  = colors.reshape(-1, 3) / 255
+
+        fig = plt.figure()
+        ax = plt.axes(projection="3d")
+        ax.scatter(x, y, z1,
+            s=2,
+            facecolors=colors)
+        ax.plot_surface(X, Y, fX, color=[0, 0, 1, 0.3])
+        plt.show()
+
+        first_image = tmp
 
 def generate_opt_flow(txt_file, name="opt_flow.txt"):
     percent = 0.2
@@ -328,48 +398,54 @@ def generate_opt_flow(txt_file, name="opt_flow.txt"):
 
     for image in images[1:]:
         current_image = cv.imread(image)
+        current_image = current_image[h_start:h_stop, w_start:w_stop]
 
-        opt_flow, past_image = optical_flow(past_image, current_image[h_start:h_stop, w_start:w_stop], opt_flow)
-        dx, dy = mean_opt_flow(opt_flow, mask=~egi_mask(current_image[h_start:h_stop, w_start:w_stop]))
+        # Test this new EGI
+        mask = ~egi_mask(past_image[h_start:h_stop, w_start:w_stop])
+
+        opt_flow, past_image = optical_flow(past_image, current_image, opt_flow)
+        dx, dy = mean_opt_flow(opt_flow, mask=mask)
         opt_flows.append((dx, dy))
 
     with open(name, "w") as f:
         for (dx, dy) in opt_flows:
             f.write("{} {}\n".format(dx, dy))
 
-def egi_mask(image, thresh=40):
+def egi_mask(image, thresh=30):
     '''
     Takes as input a numpy array describing an image and return a
     binary mask thresholded over the Excess Green Index.
     '''
+    img_h, img_w = image.shape[:2]
+    small_area = int(0.25 / 100 * img_w * img_h)
+
     image_np  = np.array(image).astype(np.float)
-    image_egi = 2 * image_np[:, :, 1] - image_np[:, :, 0] - image_np[:, :, 2]
+    image_egi = np.sum(np.array([-1, 2, -1]) * image_np, axis=2)
     image_gf  = filters.gaussian(image_egi, sigma=1, mode='reflect')
-    image_bin = image_gf > 40
-    image_out = morphology.remove_small_objects(image_bin, 500)
-    image_out = morphology.remove_small_holes(image_out, 800)
+    image_bin = image_gf > thresh
+    image_out = morphology.remove_small_objects(image_bin, small_area)
+    image_out = morphology.remove_small_holes(image_out, small_area)
 
     return image_out
-
 
 def cv_egi_mask(image, thresh=40):
     '''
     Takes as input a numpy array describing an image and return a
-    binary mask thresholded over the Excess Green Index. OpenCV implementaition.
+    binary mask thresholded over the Excess Green Index. OpenCV implementation.
     '''
     image_np = np.array(image).astype(np.float32)
     image_np = 2 * image_np[:, :, 1] - image_np[:, :, 0] - image_np[:, :, 2]
 
-    image_gf = cv.GaussianBlur(src=image_np, ksize=(0, 0), sigmaX=3)
+    # image_gf = cv.GaussianBlur(src=image_np, ksize=(0, 0), sigmaX=3)
 
-    image_bin = image_gf > thresh
+    image_bin = image_np > thresh
 
     nb_components, output, stats, _ = cv.connectedComponentsWithStats(image_bin.astype(np.uint8), connectivity=8)
 
     sizes = stats[1:, -1]
     nb_components = nb_components - 1
 
-    img_out = np.zeros((output.shape))
+    img_out = np.zeros_like(output, dtype=np.uint8)
 
     for i in range(0, nb_components):
         if sizes[i] >= 500:
@@ -378,7 +454,7 @@ def cv_egi_mask(image, thresh=40):
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
     image_morph = cv.morphologyEx(img_out, op=cv.MORPH_CLOSE, kernel=kernel)
 
-    return image_morph
+    return image_morph.astype(np.bool)
 
 
 def create_dir(directory):
@@ -776,3 +852,8 @@ def basler3M_calibration_maps(image_size=None):
 
 def calibrated(img, mapx, mapy):
     return cv.remap(img, mapx, mapy, interpolation=cv.INTER_CUBIC)
+
+
+if __name__ == "__main__":
+    txt_file = "data/haricot_debug_long_2.txt"
+    opt_flow_plane(txt_file)
