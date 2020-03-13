@@ -1379,12 +1379,12 @@ if __name__ == "__main__":
     bean_long = "data/haricot_debug_long_2.txt"
     bean_long_folder = "/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2"
     # bean_opt_flow = "data/opt_flow_haricot.txt"
-    bean_opt_flow = "data/opt_flow_haricot_cal.txt"
+    bean_opt_flow = "data/opt_flow_haricot.txt"
 
     maize_long = "data/mais_debug_long_2.txt"
     maize_long_folder = "/media/deepwater/DATA/Shared/Louis/datasets/mais_debug_montoldre_2"
     # maize_opt_flow = "data/opt_flow_mais.txt"
-    maize_opt_flow = "data/opt_flow_mais_cal.txt"
+    maize_opt_flow = "data/opt_flow_mais.txt"
 
     maize_demo = "data/demo_mais.txt"
     maize_demo_folder = "data/demo_mais"

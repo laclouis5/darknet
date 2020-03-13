@@ -36,7 +36,6 @@ def basler3M_calibration_maps(image_size=None):
     Use image_size=None if working with images in original resolution (2048x1536).
     If not, specify the real image size.
     """
-
     original_img_size = (2048, 1536)
 
     mtx = np.array([[1846.48412, 0.0,        1044.42589],
@@ -58,8 +57,14 @@ def calibrated(image, mapx, mapy):
     return cv.remap(image, mapx, mapy, interpolation=cv.INTER_CUBIC)
 
 def calibrate_folder(folder, save_dir, img_size=None):
+    """
+    Use image_size=None if working with images in original resolution (2048x1536).
+    If not, specify the real image size.
+    """
     images = glob(os.path.join(folder, "*.jpg"))
+
     mapx, mapy = basler3M_calibration_maps(img_size)
+
     if not os.path.isdir(save_dir):
         os.mkdir(save_dir)
 
@@ -158,7 +163,9 @@ def estimate_homographies(image_list_file):
 
 if __name__ == "__main__":
     img = "test.jpg"
-    folder = "/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2"
+    folder = "/media/deepwater/DATA/Shared/Louis/datasets/haricot_montoldre_sequential"
     save_dir = "save/calibrated_images/"
 
-    estimate_homographies("data/haricot_debug_long_2.txt")
+    # estimate_homographies("data/haricot_debug_long_2.txt")
+
+    calibrate_folder(folder, save_dir, img_size=(632, 632))

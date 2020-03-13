@@ -294,13 +294,24 @@ def mean_opt_flow(optical_flow, mask=None):
         dy = optical_flow[..., 1]
 
         if mask is not None:
-            dx = dx[mask]
-            dy = dy[mask]
+            dx = dx[mask == True]
+            dy = dy[mask == True]
 
-        mean_dx = dx.sum() / dx.size
-        mean_dy = dy.sum() / dy.size
+        return np.mean(dx), np.mean(dy)
 
-        return mean_dx, mean_dy
+def median_opt_flow(optical_flow, mask=None):
+        """
+        `mask` is a binary mask where locations where to compute optical_flow
+        ar marked as True.
+        """
+        dx = optical_flow[..., 0]
+        dy = optical_flow[..., 1]
+
+        if mask is not None:
+            dx = dx[mask == True]
+            dy = dy[mask == True]
+
+        return np.median(dx), np.median(dy)
 
 def opt_flow_plane(txt_file):
     images = []
@@ -323,6 +334,8 @@ def opt_flow_plane(txt_file):
 
     X, Y = np.meshgrid(np.arange(0, img_w), np.arange(0, img_h))
 
+    opt_flows = "0 0\n"
+
     for image in images[1:]:
         second_image = cv.imread(image)
 
@@ -341,44 +354,49 @@ def opt_flow_plane(txt_file):
         coeffs_X = fit_plane(X, Y, dX, mask)
         coeffs_Y = fit_plane(X, Y, dY, mask)
 
-        fX = coeffs_X[0] * X + coeffs_X[1] * Y + coeffs_X[2]
-        fY = coeffs_Y[0] * X + coeffs_Y[1] * Y + coeffs_Y[2]
+        c_x = coeffs_X[0] * (img_w / 2) + coeffs_X[1] * (img_h / 2) + coeffs_X[2]
+        c_y = coeffs_Y[0] * (img_w / 2) + coeffs_Y[1] * (img_h / 2) + coeffs_Y[2]
 
-        R2_X = reg_score(dX, fX, mask)
-        R2_Y = reg_score(dY, fY, mask)
-
-        c_x = coeffs_X[0] * img_w / 2 + coeffs_X[1] * img_h / 2 + coeffs_X[2]
-        c_y = coeffs_Y[0] * img_w / 2 + coeffs_Y[1] * img_h / 2 + coeffs_Y[2]
-
-        print("Eq. X: {:.3}*X + {:.3}*Y + {:.3}".format(*coeffs_X))
-        print("Eq. Y: {:.3}*X + {:.3}*Y + {:.3}".format(*coeffs_Y))
-        print("R² X: {:.2%}".format(R2_X))
-        print("R² Y: {:.2%}".format(R2_Y))
-        print("Optical Flow Center X: {}".format(c_x))
-        print("Optical Flow Center Y: {}".format(c_y))
-        print()
-
-        from mpl_toolkits import mplot3d
-        x = X[::8, ::8].reshape(-1, 1)
-        y = Y[::8, ::8].reshape(-1, 1)
-        z1 = (dX[::8, ::8] * mask[::8, ::8]).reshape(-1, 1)
-        z2 = (dY[::8, ::8] * mask[::8, ::8]).reshape(-1, 1)
-        colors = cv.cvtColor(first_image[::8, ::8, :], cv.COLOR_BGR2RGB)
-        colors  = colors.reshape(-1, 3) / 255
-
-        fig = plt.figure()
-        ax = plt.axes(projection="3d")
-        ax.scatter(x, y, z1,
-            s=2,
-            facecolors=colors)
-        ax.plot_surface(X, Y, fX, color=[0, 0, 1, 0.3])
-        plt.show()
+        opt_flows += "{} {}\n".format(c_x, c_y)
+        # fX = coeffs_X[0] * X + coeffs_X[1] * Y + coeffs_X[2]
+        # fY = coeffs_Y[0] * X + coeffs_Y[1] * Y + coeffs_Y[2]
+        #
+        # R2_X = reg_score(dX, fX, mask)
+        # R2_Y = reg_score(dY, fY, mask)
+        #
+        # c_x = coeffs_X[0] * img_w / 2 + coeffs_X[1] * img_h / 2 + coeffs_X[2]
+        # c_y = coeffs_Y[0] * img_w / 2 + coeffs_Y[1] * img_h / 2 + coeffs_Y[2]
+        #
+        # print("Eq. X: {:.3}*X + {:.3}*Y + {:.3}".format(*coeffs_X))
+        # print("Eq. Y: {:.3}*X + {:.3}*Y + {:.3}".format(*coeffs_Y))
+        # print("R² X: {:.2%}".format(R2_X))
+        # print("R² Y: {:.2%}".format(R2_Y))
+        # print("Optical Flow Center X: {}".format(c_x))
+        # print("Optical Flow Center Y: {}".format(c_y))
+        # print()
+        #
+        # from mpl_toolkits import mplot3d
+        # x = X[::8, ::8].reshape(-1, 1)
+        # y = Y[::8, ::8].reshape(-1, 1)
+        # z1 = (dX[::8, ::8] * mask[::8, ::8]).reshape(-1, 1)
+        # z2 = (dY[::8, ::8] * mask[::8, ::8]).reshape(-1, 1)
+        # colors = cv.cvtColor(first_image[::8, ::8, :], cv.COLOR_BGR2RGB)
+        # colors  = colors.reshape(-1, 3) / 255
+        #
+        # fig = plt.figure()
+        # ax = plt.axes(projection="3d")
+        # ax.scatter(x, y, z1,
+        #     s=2,
+        #     facecolors=colors)
+        # ax.plot_surface(X, Y, fX, color=[0, 0, 1, 0.3])
+        # plt.show()
 
         first_image = tmp
 
-def generate_opt_flow(txt_file, name="opt_flow.txt"):
-    percent = 0.2
+    with open("planar_opt_flow.txt", "w") as f:
+        f.write(opt_flows)
 
+def generate_opt_flow(txt_file, name="opt_flow.txt", masking_border=False):
     images = []
     with open(txt_file, "r") as f:
         images = f.readlines()
@@ -386,26 +404,39 @@ def generate_opt_flow(txt_file, name="opt_flow.txt"):
 
     past_image = cv.imread(images[0])
     (img_h, img_w) = past_image.shape[:2]
-    h_start = int(img_h * percent)
-    h_stop = int(img_h * (1 - percent))
-    w_start = int(img_w * percent) + 70
-    w_stop = int(img_w * (1 - percent)) + 70
 
-    past_image = past_image[h_start:h_stop, w_start:w_stop]
+    xmin = int(img_w * 0.2)
+    xmax = int(img_w * 0.9)
+    ymin = int(img_h * 0.1)
+    ymax = int(img_h * 0.9)
+
+    base_mask = np.full(past_image.shape[:2], False)
+    base_mask[ymin:ymax:, xmin:xmax] = True
 
     opt_flow = None
     opt_flows = [(0, 0)]
 
     for image in images[1:]:
         current_image = cv.imread(image)
-        current_image = current_image[h_start:h_stop, w_start:w_stop]
 
-        # Test this new EGI
-        mask = ~egi_mask(past_image[h_start:h_stop, w_start:w_stop])
+        # Egi and mask
+        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
 
-        opt_flow, past_image = optical_flow(past_image, current_image, opt_flow)
-        dx, dy = mean_opt_flow(opt_flow, mask=mask)
+        egi = np.uint8(egi_mask(past_image) * 255)
+        egi = cv.dilate(egi, kernel, iterations=5)
+        egi = egi.astype(np.bool)
+
+        if masking_border:
+            mask = ~egi & base_mask
+        else:
+            mask = ~egi
+
+        # Opt flow
+        opt_flow, tmp = optical_flow(past_image, current_image, opt_flow)
+        dx, dy = median_opt_flow(opt_flow, mask=mask)
         opt_flows.append((dx, dy))
+
+        past_image = tmp
 
     with open(name, "w") as f:
         for (dx, dy) in opt_flows:
@@ -853,7 +884,101 @@ def basler3M_calibration_maps(image_size=None):
 def calibrated(img, mapx, mapy):
     return cv.remap(img, mapx, mapy, interpolation=cv.INTER_CUBIC)
 
+def RMSE_opt_flow(txt_file):
+    images = []
+    with open(txt_file, "r") as f:
+        images = f.readlines()
+    images = [image.strip() for image in images]
+
+    first_image = cv.imread(images[0])
+    (img_h, img_w) = first_image.shape[:2]
+
+    xmin = int(img_w * 0.2)
+    xmax = int(img_w * 0.9)
+    ymin = int(img_h * 0.1)
+    ymax = int(img_h * 0.9)
+
+    base_mask = np.full(first_image.shape[:2], False)
+    base_mask[ymin:ymax:, xmin:xmax] = True
+
+    opflow = None
+
+    X, Y = np.meshgrid(np.arange(0, img_w), np.arange(0, img_h))
+
+    RMSEs_X = [0]
+    RMSEs_Y = [0]
+
+    for image in images[1:]:
+        second_image = cv.imread(image)
+
+        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
+        egi = np.uint8(egi_mask(first_image) * 255)
+        egi = cv.dilate(egi, kernel, iterations=5)
+        egi = egi.astype(np.bool)
+
+        mask = ~egi & base_mask
+
+        opflow, tmp = optical_flow(first_image, second_image,
+            prev_opt_flow=opflow)
+
+        dX, dY = opflow[..., 0], opflow[..., 1]
+
+        coeffs_X = fit_plane(X, Y, dX)
+        coeffs_Y = fit_plane(X, Y, dY)
+
+        coeffs_X_2 = fit_plane(X, Y, dX, mask)
+        coeffs_Y_2 = fit_plane(X, Y, dY, mask)
+
+        H_x = coeffs_X[0] * X + coeffs_X[1] * Y + coeffs_X[2]
+        H_y = coeffs_Y[0] * X + coeffs_Y[1] * Y + coeffs_Y[2]
+
+        H_x_2 = coeffs_X_2[0] * X + coeffs_X_2[1] * Y + coeffs_X_2[2]
+        H_y_2 = coeffs_Y_2[0] * X + coeffs_Y_2[1] * Y + coeffs_Y_2[2]
+
+        RMSE_x = np.sqrt(np.mean(np.square(H_x - H_x_2)))
+        RMSE_y = np.sqrt(np.mean(np.square(H_y - H_y_2)))
+
+        RMSEs_X.append(RMSE_x)
+        RMSEs_Y.append(RMSE_y)
+
+        print(RMSE_x, RMSE_y)
+
+        first_image = tmp
+
+    plt.plot(RMSEs_X, "b", label="X")
+    plt.plot(RMSEs_Y, "r", label="Y")
+    plt.legend()
+    plt.xlabel("Frame number")
+    # plt.ylabel("RMSE")
+    plt.title("Optical Flow Mask Comparison - Planar Opt Flow")
+    plt.show()
 
 if __name__ == "__main__":
     txt_file = "data/haricot_debug_long_2.txt"
-    opt_flow_plane(txt_file)
+
+    # opt_flow_plane(txt_file)
+    # generate_opt_flow(txt_file, masking_border=True)
+
+    RMSE_opt_flow(txt_file)
+
+    # with open("opt_flow.txt", "r") as f:
+    #     content = f.readlines()
+    #     content = np.array([c.strip().split() for c in content], dtype=np.float)
+    #     dx1, dy1 = content[:, 0], content[:, 1]
+    #
+    # with open("planar_opt_flow.txt", "r") as f:
+    #     content = f.readlines()
+    #     content = np.array([c.strip().split() for c in content], dtype=np.float)
+    #     dx2, dy2 = content[:, 0], content[:, 1]
+    #
+    # err_dx = np.sqrt(np.mean(np.square(dx1 - dx2)))
+    # print("RMSE X: {}".format(err_dx))
+    #
+    # err_dy = np.sqrt(np.mean(np.square(dy1 - dy2)))
+    # print("RMSE Y: {}".format(err_dy))
+    #
+    # plt.plot(dx1, "b", label="Mean Opt Flow")
+    # plt.plot(dx2, "r", label="Planar Center Opt Flow")
+    # plt.legend()
+    # plt.title("Optical Flow")
+    # plt.show()
