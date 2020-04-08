@@ -41,7 +41,7 @@ class Tracker:
         print("OF: {} {}".format(self.acc_flow[0], self.acc_flow[1]))
 
         tracked_boxes = self.get_all_boxes()
-        detections = nms(detections, conf_thresh=self.min_confidence, nms_thresh=0.2)
+        detections = nms(detections, conf_thresh=self.min_confidence, nms_thresh=0.2)  # May be useless
         detections.moveBy(-self.acc_flow[0], -self.acc_flow[1])
 
         matches, unmatched_dets, unmatched_tracks = self.assignment_match_indices(detections, tracked_boxes)
@@ -51,13 +51,16 @@ class Tracker:
 
         print("unmatched dets: {}".format(unmatched_dets))
         print("unmatched_tracks: {}".format(unmatched_tracks))
+
         for det_idx in unmatched_dets:
             print("Det_idx: {}".format(det_idx))
+
             new_track = Track(history=[detections[det_idx]])
             self.tracks.append(new_track)
 
         for track in self.tracks:
             (x, y, _, _) = track.barycenter_box().getAbsoluteBoundingBox(format=BBFormat.XYC)
+
             print("Track: len: {}, pos: {} {}, conf: {}".format(len(track), x, y, track.mean_confidence()))
 
     def assignment_match_indices(self, detections, tracks):
@@ -102,6 +105,7 @@ class Tracker:
 
 class Track(MutableSequence):
     track_id = 0
+    
     def __init__(self, history=None):
         self.is_alive = True # Implement this...
         self.track_id = Track.track_id
@@ -129,7 +133,8 @@ class Track(MutableSequence):
         self.history.insert(index, item)
 
     def mean_confidence(self):
-        return np.array([box.getConfidence() for box in self.history]).mean()
+        confidences = np.array([box.getConfidence() for box in self.history])
+        return confidences.mean()
 
     def barycenter_box(self):
         assert len(self.history) > 0, "Track is empty, cannot compute barycenter"
@@ -139,7 +144,15 @@ class Track(MutableSequence):
 
         ref_box = self.history[0]
 
-        return BoundingBox(imageName="No name", classId=ref_box.getClassId(), x=box[0], y=box[1], w=box[2], h=box[3], typeCoordinates=ref_box.getCoordinatesType(), imgSize=ref_box.getImageSize(), bbType=ref_box.getBBType(), classConfidence=self.mean_confidence(), format=BBFormat.XYC)
+        return BoundingBox(
+            imageName="No name",
+            classId=ref_box.getClassId(),
+            x=box[0], y=box[1], w=box[2], h=box[3],
+            typeCoordinates=ref_box.getCoordinatesType(),
+            imgSize=ref_box.getImageSize(),
+            bbType=ref_box.getBBType(),
+            classConfidence=self.mean_confidence(),
+            format=BBFormat.XYC)
 
 def gts_in_unique_ref(txt_file, folder, optical_flow, label):
     opt_flows = []
