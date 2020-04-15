@@ -57,6 +57,11 @@ load_args get_base_args(network *net)
     return args;
 }
 
+int64_t get_current_iteration(network net)
+{
+    return *net.cur_iteration;
+}
+
 int get_current_batch(network net)
 {
     int batch_num = (*net.seen)/(net.batch*net.subdivisions);
@@ -240,6 +245,7 @@ network make_network(int n)
     net.n = n;
     net.layers = (layer*)xcalloc(net.n, sizeof(layer));
     net.seen = (uint64_t*)xcalloc(1, sizeof(uint64_t));
+    net.cur_iteration = (int*)xcalloc(1, sizeof(int));
 #ifdef GPU
     net.input_gpu = (float**)xcalloc(1, sizeof(float*));
     net.truth_gpu = (float**)xcalloc(1, sizeof(float*));
@@ -266,6 +272,13 @@ void forward_network(network net, network_state state)
         l.forward(l, state);
         //printf("%d - Predicted in %lf milli-seconds.\n", i, ((double)get_time_point() - time) / 1000);
         state.input = l.output;
+
+        /*
+        float avg_val = 0;
+        int k;
+        for (k = 0; k < l.outputs; ++k) avg_val += l.output[k];
+        printf(" i: %d - avg_val = %f \n", i, avg_val / l.outputs);
+        */
     }
 }
 
@@ -352,7 +365,7 @@ float train_network_datum(network net, float *x, float *y)
     forward_network(net, state);
     backward_network(net, state);
     float error = get_network_cost(net);
-    if(((*net.seen)/net.batch)%net.subdivisions == 0) update_network(net);
+    //if(((*net.seen)/net.batch)%net.subdivisions == 0) update_network(net);
     return error;
 }
 
@@ -397,6 +410,12 @@ float train_network_waitkey(network net, data d, int wait_key)
         sum += err;
         if(wait_key) wait_key_cv(5);
     }
+    (*net.cur_iteration) += 1;
+#ifdef GPU
+    update_network_gpu(net);
+#else   // GPU
+    update_network(net);
+#endif  // GPU
     free(X);
     free(y);
     return (float)sum/(n*batch);
@@ -516,7 +535,7 @@ int resize_network(network *net, int w, int h)
     //fflush(stderr);
     for (i = 0; i < net->n; ++i){
         layer l = net->layers[i];
-        //printf(" %d: layer = %d,", i, l.type);
+        //printf(" (resize %d: layer = %d) , ", i, l.type);
         if(l.type == CONVOLUTIONAL){
             resize_convolutional_layer(&l, w, h);
         }
@@ -1041,6 +1060,7 @@ void free_network(network net)
     free(net.scales);
     free(net.steps);
     free(net.seen);
+    free(net.cur_iteration);
 
 #ifdef GPU
     if (gpu_index >= 0) cuda_free(net.workspace);
@@ -1072,6 +1092,12 @@ static float relu(float src) {
     return 0;
 }
 
+static float lrelu(float src) {
+    const float eps = 0.001;
+    if (src > eps) return src;
+    return eps;
+}
+
 void fuse_conv_batchnorm(network net)
 {
     int j;
@@ -1089,14 +1115,14 @@ void fuse_conv_batchnorm(network net)
                 int f;
                 for (f = 0; f < l->n; ++f)
                 {
-                    l->biases[f] = l->biases[f] - (double)l->scales[f] * l->rolling_mean[f] / (sqrt((double)l->rolling_variance[f] + .000001));
+                    l->biases[f] = l->biases[f] - (double)l->scales[f] * l->rolling_mean[f] / (sqrt((double)l->rolling_variance[f] + .00001));
 
                     const size_t filter_size = l->size*l->size*l->c / l->groups;
                     int i;
                     for (i = 0; i < filter_size; ++i) {
                         int w_index = f*filter_size + i;
 
-                        l->weights[w_index] = (double)l->weights[w_index] * l->scales[f] / (sqrt((double)l->rolling_variance[f] + .000001));
+                        l->weights[w_index] = (double)l->weights[w_index] * l->scales[f] / (sqrt((double)l->rolling_variance[f] + .00001));
                     }
                 }
 
@@ -1113,8 +1139,9 @@ void fuse_conv_batchnorm(network net)
         {
             if (l->nweights > 0) {
                 //cuda_pull_array(l.weights_gpu, l.weights, l.nweights);
-                for (int i = 0; i < l->nweights; ++i) printf(" w = %f,", l->weights[i]);
-                printf(" l->nweights = %d \n", l->nweights);
+                int i;
+                for (i = 0; i < l->nweights; ++i) printf(" w = %f,", l->weights[i]);
+                printf(" l->nweights = %d, j = %d \n", l->nweights, j);
             }
 
             // nweights - l.n or l.n*l.c or (l.n*l.c*l.h*l.w)
@@ -1139,14 +1166,14 @@ void fuse_conv_batchnorm(network net)
                 for (i = 0; i < (l->n + 1); ++i) {
                     int w_index = chan + i * layer_step;
                     float w = l->weights[w_index];
-                    if (l->weights_normalizion == RELU_NORMALIZATION) sum += relu(w);
+                    if (l->weights_normalizion == RELU_NORMALIZATION) sum += lrelu(w);
                     else if (l->weights_normalizion == SOFTMAX_NORMALIZATION) sum += expf(w - max_val);
                 }
 
                 for (i = 0; i < (l->n + 1); ++i) {
                     int w_index = chan + i * layer_step;
                     float w = l->weights[w_index];
-                    if (l->weights_normalizion == RELU_NORMALIZATION) w = relu(w) / sum;
+                    if (l->weights_normalizion == RELU_NORMALIZATION) w = lrelu(w) / sum;
                     else if (l->weights_normalizion == SOFTMAX_NORMALIZATION) w = expf(w - max_val) / sum;
                     l->weights[w_index] = w;
                 }
