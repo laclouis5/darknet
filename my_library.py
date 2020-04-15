@@ -172,7 +172,6 @@ def gts_in_unique_ref(txt_file, folder, optical_flow, label):
 
         out_boxes += label_boxes.movedBy(-dx, -dy)
 
-
     return out_boxes
 
 def associate_boxes_with_image(txt_file, optical_flow, boxes):
@@ -396,7 +395,7 @@ def opt_flow_plane(txt_file):
     with open("planar_opt_flow.txt", "w") as f:
         f.write(opt_flows)
 
-def generate_opt_flow(txt_file, name="opt_flow.txt", masking_border=False):
+def generate_opt_flow(txt_file, name="opt_flow.txt", masking_border=False, mask_egi=False):
     images = []
     with open(txt_file, "r") as f:
         images = f.readlines()
@@ -405,13 +404,16 @@ def generate_opt_flow(txt_file, name="opt_flow.txt", masking_border=False):
     past_image = cv.imread(images[0])
     (img_h, img_w) = past_image.shape[:2]
 
-    xmin = int(img_w * 0.2)
-    xmax = int(img_w * 0.9)
-    ymin = int(img_h * 0.1)
-    ymax = int(img_h * 0.9)
+    base_mask = np.full(past_image.shape[:2], True)
 
-    base_mask = np.full(past_image.shape[:2], False)
-    base_mask[ymin:ymax:, xmin:xmax] = True
+    if masking_border:
+        xmin = int(img_w * 0.2)
+        xmax = int(img_w * 0.9)
+        ymin = int(img_h * 0.1)
+        ymax = int(img_h * 0.9)
+
+        base_mask[ymin:ymax:, xmin:xmax] = False
+        base_mask = ~base_mask
 
     opt_flow = None
     opt_flows = [(0, 0)]
@@ -419,17 +421,17 @@ def generate_opt_flow(txt_file, name="opt_flow.txt", masking_border=False):
     for image in images[1:]:
         current_image = cv.imread(image)
 
-        # Egi and mask
-        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
+        if mask_egi:
+            # Egi and mask
+            kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
 
-        egi = np.uint8(egi_mask(past_image) * 255)
-        egi = cv.dilate(egi, kernel, iterations=5)
-        egi = egi.astype(np.bool)
+            egi = np.uint8(egi_mask(past_image) * 255)
+            egi = cv.dilate(egi, kernel, iterations=5)
+            egi = egi.astype(np.bool)
 
-        if masking_border:
-            mask = ~egi & base_mask
+            mask = base_mask & ~egi
         else:
-            mask = ~egi
+            mask = base_mask
 
         # Opt flow
         opt_flow, tmp = optical_flow(past_image, current_image, opt_flow)
@@ -957,20 +959,41 @@ if __name__ == "__main__":
     txt_file = "data/haricot_debug_long_2.txt"
 
     # opt_flow_plane(txt_file)
-    # generate_opt_flow(txt_file, masking_border=True)
+    generate_opt_flow(txt_file, "opt_flow_mean_none.txt", masking_border=False, mask_egi=False)
+    generate_opt_flow(txt_file, "opt_flow_mean_all.txt", masking_border=True, mask_egi=True)
+    generate_opt_flow(txt_file, "opt_flow_mean_egi.txt", masking_border=False, mask_egi=True)
+    generate_opt_flow(txt_file, "opt_flow_mean_border.txt", masking_border=True, mask_egi=False)
 
-    RMSE_opt_flow(txt_file)
+    # RMSE_opt_flow(txt_file)
 
-    # with open("opt_flow.txt", "r") as f:
-    #     content = f.readlines()
-    #     content = np.array([c.strip().split() for c in content], dtype=np.float)
-    #     dx1, dy1 = content[:, 0], content[:, 1]
-    #
-    # with open("planar_opt_flow.txt", "r") as f:
-    #     content = f.readlines()
-    #     content = np.array([c.strip().split() for c in content], dtype=np.float)
-    #     dx2, dy2 = content[:, 0], content[:, 1]
-    #
+    with open("opt_flow_mean_none.txt", "r") as f:
+        content = f.readlines()
+        content = np.array([c.strip().split() for c in content], dtype=np.float)
+        dx1, dy1 = content[:, 0], content[:, 1]
+
+    with open("opt_flow_mean_all.txt", "r") as f:
+        content = f.readlines()
+        content = np.array([c.strip().split() for c in content], dtype=np.float)
+        dx2, dy2 = content[:, 0], content[:, 1]
+
+    with open("opt_flow_mean_egi.txt", "r") as f:
+        content = f.readlines()
+        content = np.array([c.strip().split() for c in content], dtype=np.float)
+        dx3, dy3 = content[:, 0], content[:, 1]
+
+    with open("opt_flow_mean_border.txt", "r") as f:
+        content = f.readlines()
+        content = np.array([c.strip().split() for c in content], dtype=np.float)
+        dx4, dy4 = content[:, 0], content[:, 1]
+
+    plt.plot(dx1, label="None")
+    plt.plot(dx2, label="All")
+    plt.plot(dx3, label="EGI")
+    plt.plot(dx4, label="Border")
+    plt.legend()
+    plt.title("Mean Opt flow in X axis w.r.t masking")
+    plt.show()
+
     # err_dx = np.sqrt(np.mean(np.square(dx1 - dx2)))
     # print("RMSE X: {}".format(err_dx))
     #
