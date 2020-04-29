@@ -84,6 +84,9 @@ class DETECTION(Structure):
                 ("uc", POINTER(c_float)),
                 ("points", c_int)]
 
+class DETNUMPAIR(Structure):
+    _fields_ = [("num", c_int),
+                ("dets", POINTER(DETECTION))]
 
 class IMAGE(Structure):
     _fields_ = [("w", c_int),
@@ -181,6 +184,9 @@ make_network_boxes.restype = POINTER(DETECTION)
 free_detections = lib.free_detections
 free_detections.argtypes = [POINTER(DETECTION), c_int]
 
+free_batch_detections = lib.free_batch_detections
+free_batch_detections.argtypes = [POINTER(DETNUMPAIR), c_int]
+
 free_ptrs = lib.free_ptrs
 free_ptrs.argtypes = [POINTER(c_void_p), c_int]
 
@@ -225,6 +231,15 @@ rgbgr_image.argtypes = [IMAGE]
 predict_image = lib.network_predict_image
 predict_image.argtypes = [c_void_p, IMAGE]
 predict_image.restype = POINTER(c_float)
+
+predict_image_letterbox = lib.network_predict_image_letterbox
+predict_image_letterbox.argtypes = [c_void_p, IMAGE]
+predict_image_letterbox.restype = POINTER(c_float)
+
+network_predict_batch = lib.network_predict_batch
+network_predict_batch.argtypes = [c_void_p, IMAGE, c_int, c_int, c_int,
+                                   c_float, c_float, POINTER(c_int), c_int, c_int]
+network_predict_batch.restype = POINTER(DETNUMPAIR)
 
 def array_to_image(arr):
     import numpy as np
@@ -315,7 +330,7 @@ netMain = None
 metaMain = None
 altNames = None
 
-def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yolov3.cfg", weightPath = "yolov3.weights", metaPath= "./cfg/coco.data", showImage= True, makeImageOnly = False, initOnly= False):
+def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yolov4.cfg", weightPath = "yolov4.weights", metaPath= "./cfg/coco.data", showImage= True, makeImageOnly = False, initOnly= False):
     """
     Convenience function to handle the detection and returns of objects.
 

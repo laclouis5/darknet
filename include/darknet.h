@@ -104,7 +104,7 @@ typedef struct tree {
 
 // activations.h
 typedef enum {
-    LOGISTIC, RELU, RELU6, RELIE, LINEAR, RAMP, TANH, PLSE, LEAKY, ELU, LOGGY, STAIR, HARDTAN, LHTAN, SELU, SWISH, MISH, NORM_CHAN, NORM_CHAN_SOFTMAX, NORM_CHAN_SOFTMAX_MAXVAL
+    LOGISTIC, RELU, RELU6, RELIE, LINEAR, RAMP, TANH, PLSE, LEAKY, ELU, LOGGY, STAIR, HARDTAN, LHTAN, SELU, GELU, SWISH, MISH, NORM_CHAN, NORM_CHAN_SOFTMAX, NORM_CHAN_SOFTMAX_MAXVAL
 }ACTIVATION;
 
 // parser.h
@@ -324,6 +324,7 @@ struct layer {
 
     int onlyforward;
     int stopbackward;
+    int train_only_bn;
     int dont_update;
     int burnin_update;
     int dontload;
@@ -829,6 +830,12 @@ typedef struct detection{
     int points; // bit-0 - center, bit-1 - top-left-corner, bit-2 - bottom-right-corner
 } detection;
 
+// network.c -batch inference
+typedef struct det_num_pair {
+    int num;
+    detection *dets;
+} det_num_pair, *pdet_num_pair;
+
 // matrix.h
 typedef struct matrix {
     int rows, cols;
@@ -938,7 +945,9 @@ LIB_API void diounms_sort(detection *dets, int total, int classes, float thresh,
 LIB_API float *network_predict(network net, float *input);
 LIB_API float *network_predict_ptr(network *net, float *input);
 LIB_API detection *get_network_boxes(network *net, int w, int h, float thresh, float hier, int *map, int relative, int *num, int letter);
+LIB_API det_num_pair* network_predict_batch(network *net, image im, int batch_size, int w, int h, float thresh, float hier, int *map, int relative, int letter);
 LIB_API void free_detections(detection *dets, int n);
+LIB_API void free_batch_detections(det_num_pair *det_num_pairs, int n);
 LIB_API void fuse_conv_batchnorm(network net);
 LIB_API void calculate_binary_weights(network net);
 LIB_API char *detection_to_json(detection *dets, int nboxes, int classes, char **names, long long int frame_id, char *filename);
@@ -978,6 +987,7 @@ LIB_API void free_layer(layer l);
 // data.c
 LIB_API void free_data(data d);
 LIB_API pthread_t load_data(load_args args);
+LIB_API void free_load_threads(void *ptr);
 LIB_API pthread_t load_data_in_thread(load_args args);
 LIB_API void *load_thread(void *ptr);
 
