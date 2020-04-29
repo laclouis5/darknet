@@ -1390,8 +1390,9 @@ if __name__ == "__main__":
     maize_demo_folder = "data/demo_mais"
     maize_demo_opt_flow = "data/opt_flow_demo_mais.txt"
 
+    model_path = "results/all_vs_only_stem/all"
     # model_path = "results/yolo_v3_spp_pan_csr50_3"
-    model_path = "results/yolo_v3_pan_csr50_optimal_2" # BDD 4.2
+    # model_path = "results/yolo_v3_pan_csr50_optimal_2" # BDD 4.2
     # model_path = "results/yolo_v3_pan_csr50_optimal_3" # BDD 6.0
     # model_path = "results/yolo_v3_tiny_pan3_8/" # BDD 6.0
     yolo = YoloModelPath(model_path)
@@ -1414,11 +1415,13 @@ if __name__ == "__main__":
     labels_to_names = ['maize', 'bean', 'leek', 'stem_maize', 'stem_bean', 'stem_leek']
     label_to_number = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
     number_to_label = {0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"}
+    # number_to_label = {0: "stem_maize", 1: "stem_bean", 2: "stem_leek"}
+
     fr_to_en = {"mais": "maize", "haricot": "bean", "poireau": "leek", "mais_tige": "stem_maize", "haricot_tige": "stem_bean", "poireau_tige": "stem_leek"}
 
     # detect_and_track_aggr_visu(yolo, bean_long, bean_opt_flow, "stem_bean", conf_thresh=0.25)
 
-    optical_flow_visualisation(bean_long)
+    # optical_flow_visualisation(bean_long)
     # generate_opt_flow(bean_long, name="data/opt_flow_haricot_cal.txt")
 
     # boxes = detect_and_track_aggr(yolo, bean_long, bean_opt_flow, "stem_bean")
@@ -1517,11 +1520,11 @@ if __name__ == "__main__":
     # Evaluator().printAPsByClass(gts + filtered_dets, 3.7 / 100, EvaluationMethod.Distance)
     # filtered_dets.drawAll(save_dir="save/bean_debug_long_tracked_KF_aggr_1/")
 
-    # gts = Parser.parse_yolo_gt_folder(val_path)
-    # gts.mapLabels(number_to_label)
-    # dets = performDetectOnFolder(yolo, val_path, conf_thresh=5/100)
-    # Evaluator().printAPs(gts + dets)
-    # Evaluator().printAPsByClass(gts + dets)
+    gts = Parser.parse_yolo_gt_folder(val_path)
+    gts.mapLabels(number_to_label)
+    dets = performDetectOnFolder(yolo, val_path, conf_thresh=5/100)
+    Evaluator().printAPs(gts + dets)
+    Evaluator().printAPsByClass(gts + dets)
 
     # generate_opt_flow("data/haricot_debug_long_2.txt", name="data/opt_flow_last.txt")
     # drawConstellation(maize_demo, nb_samples=100, offset=0)
