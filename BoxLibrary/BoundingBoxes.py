@@ -5,6 +5,9 @@ from random import shuffle
 import matplotlib.pyplot as plt
 from collections.abc import MutableSequence
 
+import cv2 as cv
+from joblib import Parallel, delayed
+
 class BoundingBoxes(MutableSequence):
     def __init__(self, bounding_boxes=None):
         if bounding_boxes is not None:
@@ -271,7 +274,7 @@ class BoundingBoxes(MutableSequence):
             box.addIntoImage(image)
         return image
 
-    def drawImage(self, name, save_dir=None):
+    def drawImage(self, name, save_dir="annotated_images/"):
         """
         Draws boxes on its corresponding image and save it to disk.
 
@@ -283,13 +286,26 @@ class BoundingBoxes(MutableSequence):
             save_dir (str):
                 The path where to store the image.
         """
-        import cv2 as cv
 
-        if save_dir is not None:
-            create_dir(save_dir)
-            save_name = os.path.join(save_dir, os.path.basename(name))
+        create_dir(save_dir)
+
+        save_name = os.path.join(save_dir, os.path.basename(name))
 
         image = self.drawCVImage(cv.imread(name), name)
+        cv.imwrite(save_name, image)
+
+    def drawImageCenter(self, name, save_dir="annotated_images/"):
+        create_dir(save_dir)
+        save_name = os.path.join(save_dir, os.path.basename(name))
+
+        image = cv.imread(name)
+        for box in self.getBoundingBoxesByImageName(name):
+            (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
+            label = box.getClassId()
+            color = (0, 255, 0) if box.getBBType() == BBType.GroundTruth else (0, 0, 255)
+
+            cv.circle(image, (int(x), int(y)), 5, color, thickness=cv.FILLED)
+
         cv.imwrite(save_name, image)
 
     def drawAll(self, save_dir="annotated_images/"):
@@ -303,12 +319,19 @@ class BoundingBoxes(MutableSequence):
             save_dir (str):
                 The path where to store the image.
         """
-        from joblib import Parallel, delayed
 
         names = self.getNames()
         save_dir = [save_dir for _ in range(len(names))]
 
         Parallel(n_jobs=-1, backend="multiprocessing")(delayed(self.drawImage)(name, sd) for (name, sd) in zip(names, save_dir))
+
+    def drawAllCenters(self, save_dir="annotated_images/"):
+        names = self.getNames()
+        save_dir = [save_dir for _ in range(len(names))]
+
+        Parallel(n_jobs=-1, backend="multiprocessing")(
+            delayed(self.drawImageCenter)(name, sd) for (name, sd) in zip(names, save_dir)
+        )
 
     def copy(self):
         return BoundingBoxes([box.copy() for box in self._boundingBoxes])
