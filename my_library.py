@@ -9,6 +9,7 @@ try:
 except:
     pass
 import os
+import sys
 from PIL import Image
 from BoxLibrary import *
 
@@ -35,16 +36,15 @@ class Tracker:
         self.acc_flow[1] += optical_flow[1]
         self.optical_flows.append([optical_flow[0], optical_flow[1]])
 
-        print("Epoch: {}".format(self.life_time))
-        print("Len dets: {}".format(len(detections)))
-        print("Len tracks: {}".format(len(self.tracks)))
-        print("OF: {} {}".format(self.acc_flow[0], self.acc_flow[1]))
+        print(f"Epoch: {self.life_time}")
+        print(f"Len dets: {len(detections)}, Len tracks: {len(self.tracks)}")
+        print("OF: (x: {:.6}, y: {:.6})".format(self.acc_flow[0], self.acc_flow[1]))
 
         tracked_boxes = self.get_all_boxes()
-        detections = nms(detections, conf_thresh=self.min_confidence, nms_thresh=0.2)  # May be useless
         detections.moveBy(-self.acc_flow[0], -self.acc_flow[1])
 
-        matches, unmatched_dets, unmatched_tracks = self.assignment_match_indices(detections, tracked_boxes)
+        # matches, unmatched_dets, unmatched_tracks = self.assignment_match_indices(detections, tracked_boxes)
+        matches, unmatched_dets, unmatched_tracks = self.coco_assignement(detections, tracked_boxes)
 
         for (det_idx, trk_idk) in matches:
             self.tracks[trk_idk].append(detections[det_idx])
@@ -53,15 +53,62 @@ class Tracker:
         print("unmatched_tracks: {}".format(unmatched_tracks))
 
         for det_idx in unmatched_dets:
-            print("Det_idx: {}".format(det_idx))
-
             new_track = Track(history=[detections[det_idx]])
             self.tracks.append(new_track)
 
-        for track in self.tracks:
-            (x, y, _, _) = track.barycenter_box().getAbsoluteBoundingBox(format=BBFormat.XYC)
+        self.print_stats_for_tracks()
 
-            print("Track: len: {}, pos: {} {}, conf: {}".format(len(track), x, y, track.mean_confidence()))
+    def coco_assignement(self, detections, tracks):
+        """
+        [row: det, col: track]
+        """
+        if len(detections) == 0:
+            return np.empty((0, 0), dtype=int), np.empty((0, 0), dtype=int), np.arange(len(tracks))
+        if len(tracks) == 0:
+            return np.empty((0, 0), dtype=int), np.arange(len(detections)), np.empty((0, 0), dtype=int)
+
+        min_image_size = min(detections[0].getImageSize())
+        max_dist = self.dist_thresh * min_image_size
+        print(f"Min image size: {min_image_size}, Max dist: {max_dist} pixels")
+
+        visited = [False for _ in range(len(tracks))]
+        matches = []
+        ignored = []
+
+        detections = sorted(enumerate(detections),
+            key=lambda element: element[1].getConfidence(),
+            reverse=True)
+
+        for (i, det) in detections:
+            min_distance = sys.float_info.max
+            j_min_distance = None
+
+            for (j, track) in enumerate(tracks):
+                distance = det.distance(track)
+
+                if distance < min_distance:
+                    min_distance = distance
+                    j_min_distance = j
+
+            if min_distance < max_dist:
+                if not visited[j_min_distance]:
+                    visited[j_min_distance] = True
+                    matches.append([i, j_min_distance])
+                else:
+                    ignored.append(i)
+                # Maybe add a merge here if visited
+
+        if len(matches) == 0:
+            matches = np.empty((0, 2), dtype=int)
+        else:
+            matches = np.array(matches)
+
+        unmatched_dets = [d for d in range(len(detections)) if d not in matches[:, 0] and d not in ignored]
+        unmatched_tracks = [t for t in range(len(tracks)) if t not in matches[:, 1]]
+
+        print(matches)
+
+        return matches, np.array(unmatched_dets), np.array(unmatched_tracks)
 
     def assignment_match_indices(self, detections, tracks):
         if len(tracks) == 0:
@@ -69,12 +116,19 @@ class Tracker:
         if len(detections) == 0:
             return np.empty((0, 0), dtype=int), np.empty((0, 0), dtype=int), np.arange(len(tracks))
 
-        max_dist = self.dist_thresh * min(detections[0].getImageSize())
+        min_image_size = min(detections[0].getImageSize())
+        max_dist = self.dist_thresh * min_image_size
+        print(f"Min image size: {min_image_size}, Max dist: {max_dist} pixels")
 
-        cost_matrix = np.array([[detection.distance(track) for track in tracks] for detection in detections])
-        dets_indices, tracks_indices = linear_sum_assignment(cost_matrix)
+        dist_matrix = np.array([[detection.distance(track) for track in tracks] for detection in detections])
+        dist_matrix[dist_matrix >= max_dist] = np.finfo(float).max
 
-        matches = np.array([[d, t] for d in dets_indices for t in tracks_indices if cost_matrix[d, t] < max_dist])
+        dets_indices, tracks_indices = linear_sum_assignment(dist_matrix)
+
+        print(dist_matrix)
+        print(dets_indices, tracks_indices)
+
+        matches = np.array([[d, t] for (d, t) in zip(dets_indices, tracks_indices) if dist_matrix[d, t] < max_dist])
 
         if len(matches) == 0:
             matches = np.empty((0, 2), dtype=int)
@@ -93,21 +147,19 @@ class Tracker:
     def get_filtered_tracks(self):
         return [track for track in self.tracks if track.mean_confidence() > self.min_confidence and len(track) > self.min_points]
 
-    def get_alive_boxes(self):
-        return [track.barycenter_box() for track in self.tracks if track.is_alive]
-
     def print_stats_for_tracks(self, tracks=None):
         if tracks is None:
             tracks = self.tracks
 
-        [print("Track n°{}: count: {}, conf: {}".format(track.track_id, len(track), track.mean_confidence())) for track in tracks]
+        for track in tracks:
+            (x, y, _, _) = track.barycenter_box().getAbsoluteBoundingBox(format=BBFormat.XYC)
+            print("Track {}: len: {}, pos: (x: {:.6}, y: {:.6}), conf: {:.6}".format(track.track_id, len(track), x, y, track.mean_confidence()))
 
 
 class Track(MutableSequence):
     track_id = 0
-    
+
     def __init__(self, history=None):
-        self.is_alive = True # Implement this...
         self.track_id = Track.track_id
 
         if history == None:
@@ -186,6 +238,17 @@ def gts_in_unique_ref(txt_file, folder, optical_flow, label):
         out_boxes += label_boxes.movedBy(-dx, -dy)
 
     return out_boxes
+
+def evaluate_aggr(detections, gts):
+    """
+    detections: detections for all successive images
+    gts: ground truths for selected images
+    """
+
+    # Filter detections
+    image_names = gts.getNames()
+    detections = BoundingBoxes([det for det in detections if det.getImageName() in gts.getNames()])
+    Evaluator().printAPsByClass((detections + gts), thresh=7.5/100, method=EvaluationMethod.Distance)
 
 def associate_boxes_with_image(txt_file, optical_flow, boxes):
     images = []
