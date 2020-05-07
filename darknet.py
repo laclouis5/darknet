@@ -45,7 +45,7 @@ from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
 
-from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, mean_opt_flow, convert_to_grayscale, egi_mask, generate_opt_flow, Track, Tracker, associate_boxes_with_image, gts_in_unique_ref, optical_flow_visualisation
+from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, mean_opt_flow, convert_to_grayscale, egi_mask, generate_opt_flow, Track, Tracker, associate_boxes_with_image, gts_in_unique_ref, optical_flow_visualisation, evaluate_aggr
 
 from reg_plane import fit_plane, reg_score
 
@@ -1298,7 +1298,7 @@ def _test_optical_flow(folder):
 
         print("Dx: {}, Dy: {}".format(dx, dy))
 
-def detect_and_track_aggr(network, txt_file, optical_flow, label, conf_thresh=0.5, min_points=10, dist_thresh=7.5/100):
+def detect_and_track_aggr(network, txt_file, optical_flow, label, conf_thresh=0.25, min_points=8, dist_thresh=7.5/100):
     """
     Tracking by aggregation.
     """
@@ -1322,7 +1322,7 @@ def detect_and_track_aggr(network, txt_file, optical_flow, label, conf_thresh=0.
     # Tracker
     tracker = Tracker(min_confidence=conf_thresh, min_points=min_points, dist_thresh=dist_thresh)
 
-    for i, image in enumerate(images[:300]):
+    for i, image in enumerate(images):  # [:300]
         detections = performDetect(image, thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
         boxes = Parser.parse_yolo_darknet_detections(detections, image, image_size(image), [label])
         tracker.update(boxes, opt_flows[i])
@@ -1331,7 +1331,7 @@ def detect_and_track_aggr(network, txt_file, optical_flow, label, conf_thresh=0.
 
     return tracker.get_filtered_boxes()
 
-def detect_and_track_aggr_visu(network, txt_file, optical_flow, label, conf_thresh=0.5, min_points=10, dist_thresh=7.5/100):
+def detect_and_track_aggr_visu(network, txt_file, optical_flow, label, conf_thresh=0.25, min_points=8, dist_thresh=7.5/100):
     # Opt flow stuff reading
     opt_flows = []
     with open(optical_flow, "r") as f:
@@ -1371,18 +1371,42 @@ def detect_and_track_aggr_visu(network, txt_file, optical_flow, label, conf_thre
             box = track.barycenter_box()
             label = box.getClassId()
             box.moveBy(dx=acc_dx, dy=acc_dy)
-            (xmin, ymin, xmax, ymax) = box.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
+            # (xmin, ymin, xmax, ymax) = box.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
+            (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
 
             confidence = track.mean_confidence()
             color = nb_hits / 10 * 255
 
-            cv.rectangle(img, pt1=(int(xmin), int(ymin)), pt2=(int(xmax), int(ymax)), color=color, thickness=4)
+            # cv.rectangle(img,
+            #     pt1=(int(xmin), int(ymin)),
+            #     pt2=(int(xmax), int(ymax)),
+            #     color=color,
+            #     thickness=4
+            # )
 
-            cv.putText(img, text="{}".format(nb_hits), org=(int(xmin), int(ymin-5)), fontFace=cv.FONT_HERSHEY_PLAIN, fontScale=1, color=color, thickness=2)
+            cv.circle(img,
+                center=(int(x), int(y)),
+                radius=5,
+                color=color,
+                thickness=cv.FILLED)
 
-            cv.putText(img, text="{:.2}".format(confidence), org=(int(xmax), int(ymin-5)), fontFace=cv.FONT_HERSHEY_PLAIN, fontScale=1, color=color, thickness=2)
+            cv.putText(img,
+                text=f"{nb_hits}",
+                org=(int(x + 5), int(y - 10)),
+                fontFace=cv.FONT_HERSHEY_PLAIN,
+                fontScale=1, color=color, thickness=2)
 
-            cv.putText(img, text="{}".format(label), org=(int(xmax), int(ymax)), fontFace=cv.FONT_HERSHEY_PLAIN, fontScale=1, color=color, thickness=2)
+            cv.putText(img,
+                text="{:.2}".format(confidence),
+                org=(int(x + 5), int(y + 5)),
+                fontFace=cv.FONT_HERSHEY_PLAIN,
+                fontScale=1, color=color, thickness=2)
+
+            # cv.putText(img, text="{}".format(nb_hits), org=(int(xmin), int(ymin-5)), fontFace=cv.FONT_HERSHEY_PLAIN, fontScale=1, color=color, thickness=2)
+            #
+            # cv.putText(img, text="{:.2}".format(confidence), org=(int(xmax), int(ymin-5)), fontFace=cv.FONT_HERSHEY_PLAIN, fontScale=1, color=color, thickness=2)
+            #
+            # cv.putText(img, text="{}".format(label), org=(int(xmax), int(ymax)), fontFace=cv.FONT_HERSHEY_PLAIN, fontScale=1, color=color, thickness=2)
 
         cv.imwrite(img_save, img)
 
@@ -1393,23 +1417,21 @@ if __name__ == "__main__":
 
     bean_long = "data/haricot_debug_long_2.txt"
     bean_long_folder = "/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2"
-    # bean_opt_flow = "data/opt_flow_haricot.txt"
     bean_opt_flow = "data/opt_flow_haricot.txt"
 
     maize_long = "data/mais_debug_long_2.txt"
     maize_long_folder = "/media/deepwater/DATA/Shared/Louis/datasets/mais_debug_montoldre_2"
-    # maize_opt_flow = "data/opt_flow_mais.txt"
     maize_opt_flow = "data/opt_flow_mais.txt"
 
     maize_demo = "data/demo_mais.txt"
     maize_demo_folder = "data/demo_mais"
     maize_demo_opt_flow = "data/opt_flow_demo_mais.txt"
 
-    model_path = "results/all_vs_only_stem/all"
-    # model_path = "results/yolo_v3_spp_pan_csr50_3"
-    # model_path = "results/yolo_v3_pan_csr50_optimal_2" # BDD 4.2
-    # model_path = "results/yolo_v3_pan_csr50_optimal_3" # BDD 6.0
-    # model_path = "results/yolo_v3_tiny_pan3_8/" # BDD 6.0
+    # model_path = "results/yolov4_1"  # BDD 4.2
+    # model_path = "results/yolo_v3_pan_csr50_optimal_2"  # BDD 4.2
+    # model_path = "results/yolo_v3_pan_csr50_optimal_3"  # BDD 6.0
+    model_path = "results/yolo_v3_tiny_pan3_7/" # BDD  # BDD 4.2
+    # model_path = "results/yolo_v3_tiny_pan3_8/" # BDD  # BDD 6.0
     yolo = YoloModelPath(model_path)
 
     yolo_1 = {
@@ -1431,24 +1453,26 @@ if __name__ == "__main__":
     label_to_number = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
     number_to_label = {0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"}
     # number_to_label = {0: "stem_maize", 1: "stem_bean", 2: "stem_leek"}
-
     fr_to_en = {"mais": "maize", "haricot": "bean", "poireau": "leek", "mais_tige": "stem_maize", "haricot_tige": "stem_bean", "poireau_tige": "stem_leek"}
 
-    # detect_and_track_aggr_visu(yolo, bean_long, bean_opt_flow, "stem_bean", conf_thresh=0.25)
+    # detect_and_track_aggr_visu(yolo, maize_long, maize_opt_flow, "stem_maize", conf_thresh=0.25)
 
     # optical_flow_visualisation(bean_long)
     # generate_opt_flow(bean_long, name="data/opt_flow_haricot_cal.txt")
-
-    # boxes = detect_and_track_aggr(yolo, bean_long, bean_opt_flow, "stem_bean")
-    # boxes = nms(boxes, nms_thresh=0.3) # NMS sur la proximité des tiges plutôt que IoU
-    # dets = associate_boxes_with_image(bean_long, bean_opt_flow, boxes)
+    #
+    boxes = detect_and_track_aggr(yolo, maize_long, maize_opt_flow, "stem_maize")
+    dets = associate_boxes_with_image(maize_long, maize_opt_flow, boxes)
     # [print(box.getImageName(), box.getClassId(), box.getConfidence()) for box in dets]
-    # gts = Parser.parse_xml_folder(bean_long_folder, ["haricot_tige"])
-    # gts.mapLabels(fr_to_en)
-    # # [print(box.getImageName(), box.getClassId()) for box in gts]
-    # # [print(box.getAbsoluteBoundingBox(format=BBFormat.XYC)) for box in gts]
-    # # Evaluator().printAPsByClass((dets + gts), thresh=7.5/100, method=EvaluationMethod.Distance)
-    # (dets).drawAll(save_dir="save/aggr_tracking/")
+    gts = Parser.parse_xml_folder(maize_long_folder, ["mais_tige"])
+    gts.mapLabels(fr_to_en)
+    dets = BoundingBoxes([det for det in dets if det.getImageName() in gts.getNames()])
+    Evaluator().printAPsByClass((dets + gts), thresh=7.5/100, method=EvaluationMethod.Distance)
+    dets.drawAllCenters(save_dir="save/aggr_tracking/")
+
+    # boxes_std = performDetectOnFolder(yolo, maize_long_folder, conf_thresh=0.25)
+    # boxes_std = BoundingBoxes([box for box in boxes_std if box.getImageName() in gts.getNames() and box.getClassId() == "stem_maize"])
+    # Evaluator().printAPsByClass((boxes_std + gts), thresh=7.5/100, method=EvaluationMethod.Distance)
+    # boxes_std.drawAllCenters(save_dir="save/not_aggr/")
 
     # plt.figure()
     # x_values = []
@@ -1535,11 +1559,12 @@ if __name__ == "__main__":
     # Evaluator().printAPsByClass(gts + filtered_dets, 3.7 / 100, EvaluationMethod.Distance)
     # filtered_dets.drawAll(save_dir="save/bean_debug_long_tracked_KF_aggr_1/")
 
-    gts = Parser.parse_yolo_gt_folder(val_path)
-    gts.mapLabels(number_to_label)
-    dets = performDetectOnFolder(yolo, val_path, conf_thresh=5/100)
-    Evaluator().printAPs(gts + dets)
-    Evaluator().printAPsByClass(gts + dets)
+    # # COMPUTE MAP
+    # gts = Parser.parse_yolo_gt_folder(val_path)
+    # gts.mapLabels(number_to_label)
+    # dets = performDetectOnFolder(yolo, val_path, conf_thresh=0.5/100)
+    # Evaluator().printAPs(gts + dets)
+    # Evaluator().printAPsByClass(gts + dets)
 
     # generate_opt_flow("data/haricot_debug_long_2.txt", name="data/opt_flow_last.txt")
     # drawConstellation(maize_demo, nb_samples=100, offset=0)
