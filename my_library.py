@@ -18,6 +18,32 @@ from collections.abc import MutableSequence
 
 from reg_plane import fit_plane, reg_score
 
+def confidence_ellipse(x, y, n=3):
+    """
+    Returns the confidence ellipse for 2 correlated distributions up
+    to some confidence n * sigma.
+
+    Params:
+    - x (1D array): first distribution
+    - y (1D array): secon distribution
+    - n (int): confidence as `n * sigma`
+
+    Returns:
+    - (x, y): center of the ellipse
+    - (w, h): width and height of the ellipse
+    - angle: inclinaison of the ellispeÒ
+
+    """
+    covariance = np.cov(x, y)
+    eig_vals, eig_vects = np.linalg.eig(cov)
+    eig_vals = np.sqrt(eig_vals)
+
+    (x, y) = np.mean(x), np.mean(y)
+    (w, h) = eig_vals[0] * n * 2, eig_vals[1] * n * 2
+    angle = np.rad2deg(np.arccos(v[0, 0]))
+
+    return (x, y, w, h, angle)
+
 class Tracker:
     # Can add: if box touches image border remove it
     # Can change distance threshold to be adatative

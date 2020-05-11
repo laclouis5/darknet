@@ -1388,7 +1388,7 @@ def point_cloud_visu(yolo, txt_file, opt_flow, label, conf_thresh=0.25):
 
     all_boxes = BoundingBoxes()
 
-    for (i, image) in enumerate(images):
+    for (i, image) in enumerate(images[:1_000]):
         (dx, dy) = acc_flow[i, :]
         detections = performDetect(image, thresh=conf_thresh,
             configPath=cfg, weightPath=weights, metaPath=obj, showImage=False)
@@ -1412,7 +1412,7 @@ def point_cloud_visu(yolo, txt_file, opt_flow, label, conf_thresh=0.25):
             cv.circle(img,
                 center=(int(x), int(y)),
                 radius=2,
-                color=(255, 0, 0),
+                color=(0, 0, 255),
                 thickness=cv.FILLED)
 
         cv.imwrite(save_img_name, img)
@@ -1436,8 +1436,8 @@ if __name__ == "__main__":
     # model_path = "results/yolov4_1"  # BDD 4.2
     # model_path = "results/yolo_v3_pan_csr50_optimal_2"  # BDD 4.2
     # model_path = "results/yolo_v3_pan_csr50_optimal_3"  # BDD 6.0
-    # model_path = "results/yolo_v3_tiny_pan3_7/" # BDD  # BDD 4.2
-    model_path = "results/yolo_v3_tiny_pan3_8/" # BDD  # BDD 6.0
+    model_path = "results/yolo_v3_tiny_pan3_7/" # BDD  # BDD 4.2
+    # model_path = "results/yolo_v3_tiny_pan3_8/" # BDD  # BDD 6.0
     yolo = YoloModelPath(model_path)
 
     yolo_1 = {
