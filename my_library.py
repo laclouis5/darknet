@@ -207,14 +207,10 @@ class Track(MutableSequence):
             format=BBFormat.XYC)
 
 def gts_in_unique_ref(txt_file, folder, optical_flow, label):
-    opt_flows = []
-
-    with open(optical_flow, "r") as f:
-        opt_flows = f.readlines()
-        opt_flows = [c.strip().split(" ") for c in opt_flows]
-        opt_flows = [(float(c[0]), float(c[1])) for c in opt_flows]
-
-    dx, dy = 0, 0
+    opt_flows = read_optical_flow(optical_flow)
+    print(opt_flows)
+    acc_flow = np.cumsum(opt_flows, axis=0)
+    print(acc_flow)
 
     boxes = Parser.parse_yolo_gt_folder(folder, [label_to_number[label]])
     boxes.mapLabels(number_to_label)
@@ -229,10 +225,7 @@ def gts_in_unique_ref(txt_file, folder, optical_flow, label):
         images = [c.strip() for c in f.readlines()]
 
     for i, image in enumerate(images[:1000]):
-        opt_flow = opt_flows[i]
-        dx += opt_flow[0]
-        dy += opt_flow[1]
-
+        (dx, dy) = acc_flow[i, :]
         label_boxes = boxes.getBoundingBoxesByImageName(image)
 
         out_boxes += label_boxes.movedBy(-dx, -dy)
@@ -251,19 +244,10 @@ def evaluate_aggr(detections, gts):
     Evaluator().printAPsByClass((detections + gts), thresh=7.5/100, method=EvaluationMethod.Distance)
 
 def associate_boxes_with_image(txt_file, optical_flow, boxes):
-    images = []
-    with open(txt_file, "r") as f:
-        images = [c.strip() for c in f.readlines()]
-
-    opt_flows = []
-    with open(optical_flow, "r") as f:
-        opt_flows = f.readlines()
-        opt_flows = [c.strip().split(" ") for c in opt_flows]
-        opt_flows = [(float(c[0]), float(c[1])) for c in opt_flows]
-
+    images = read_image_txt_file(txt_file)
+    opt_flows = read_optical_flow(optical_flow)
     (img_width, img_height) = image_size(images[0])
     xmin, ymin, xmax, ymax = 0, 0, img_width, img_height
-
     out_boxes = BoundingBoxes()
 
     for i, image in enumerate(images):
@@ -276,13 +260,8 @@ def associate_boxes_with_image(txt_file, optical_flow, boxes):
         xmax -= dx
         ymax -= dy
 
-        # print("IMAGE: {}".format(image))
-        # print("FRAME: {}".format([xmin, ymin, xmax, ymax]))
-
         image_boxes = boxes.boxes_in([xmin, ymin, xmax, ymax])
         image_boxes = image_boxes.movedBy(-xmin, -ymin)
-        # print("LEN BOXES IN: {}".format(len(image_boxes)))
-        # [print(box.getAbsoluteBoundingBox(format=BBFormat.XYC)) for box in image_boxes]
 
         for box in image_boxes:
             (x, y, w, h) = box.getAbsoluteBoundingBox()
@@ -935,6 +914,23 @@ def clip_box_to_size(box, size):
         new_y = y - (ymax - im_h)
 
     return  (new_x, new_y, new_w, new_h)
+
+def read_optical_flow(file):
+    opt_flows = []
+
+    with open(file, "r") as f:
+        opt_flows = f.readlines()
+        opt_flows = [c.strip().split(" ") for c in opt_flows]
+        opt_flows = [[float(c[0]), float(c[1])] for c in opt_flows]
+
+    return opt_flows
+
+def read_image_txt_file(file):
+    images = []
+    with open(file, "r") as f:
+        images = [c.strip() for c in f.readlines()]
+
+    return images
 
 def basler3M_calibration_maps(image_size=None):
     """

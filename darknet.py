@@ -45,7 +45,7 @@ from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
 
-from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, mean_opt_flow, convert_to_grayscale, egi_mask, generate_opt_flow, Track, Tracker, associate_boxes_with_image, gts_in_unique_ref, optical_flow_visualisation, evaluate_aggr
+from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, mean_opt_flow, convert_to_grayscale, egi_mask, generate_opt_flow, Track, Tracker, associate_boxes_with_image, gts_in_unique_ref, optical_flow_visualisation, evaluate_aggr, read_optical_flow, read_image_txt_file
 
 from reg_plane import fit_plane, reg_score
 
@@ -554,6 +554,9 @@ class YoloModelPath:
         self.cfg = cfg
         self.weights = weights
         self.meta = meta
+
+    def get_cfg_weight_meta(self):
+        return(self.cfg, self.weights, self.meta)
 
 def save_yolo_detections(network, file_dir, save_dir="", bbCoords=CoordinatesType.Absolute, bbFormat=BBFormat.XYX2Y2, conf_thresh=0.25):
     model = network["model"]
@@ -1298,33 +1301,23 @@ def _test_optical_flow(folder):
 
         print("Dx: {}, Dy: {}".format(dx, dy))
 
+
 def detect_and_track_aggr(network, txt_file, optical_flow, label, conf_thresh=0.25, min_points=8, dist_thresh=7.5/100):
     """
     Tracking by aggregation.
     """
-    # Opt flow stuff reading
-    opt_flows = []
-    with open(optical_flow, "r") as f:
-        opt_flows = f.readlines()
-        opt_flows = [c.strip().split(" ") for c in opt_flows]
-        opt_flows = [(float(c[0]), float(c[1])) for c in opt_flows]
-
-    # Parse images in chronological order
-    images = []
-    with open(txt_file, "r") as f:
-        images = [c.strip() for c in f.readlines()]
-
-    # Yolo params
-    model = network.weights
-    cfg = network.cfg
-    obj = network.meta
+    opt_flows = read_optical_flow(optical_flow)
+    images = read_image_txt_file(txt_file)
+    (cfg, model, obj) = network.get_cfg_weight_meta()
 
     # Tracker
     tracker = Tracker(min_confidence=conf_thresh, min_points=min_points, dist_thresh=dist_thresh)
 
     for i, image in enumerate(images):  # [:300]
-        detections = performDetect(image, thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
-        boxes = Parser.parse_yolo_darknet_detections(detections, image, image_size(image), [label])
+        detections = performDetect(image, thresh=conf_thresh,
+            configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
+        boxes = Parser.parse_yolo_darknet_detections(detections, image,
+            image_size(image), [label])
         tracker.update(boxes, opt_flows[i])
 
     tracker.print_stats_for_tracks(tracker.get_filtered_tracks())
@@ -1333,22 +1326,10 @@ def detect_and_track_aggr(network, txt_file, optical_flow, label, conf_thresh=0.
 
 def detect_and_track_aggr_visu(network, txt_file, optical_flow, label, conf_thresh=0.25, min_points=8, dist_thresh=7.5/100):
     # Opt flow stuff reading
-    opt_flows = []
-    with open(optical_flow, "r") as f:
-        opt_flows = f.readlines()
-        opt_flows = [c.strip().split(" ") for c in opt_flows]
-        opt_flows = [(float(c[0]), float(c[1])) for c in opt_flows]
-    acc_dx, acc_dy = 0, 0
-
-    # Parse images in chronological order
-    images = []
-    with open(txt_file, "r") as f:
-        images = [c.strip() for c in f.readlines()]
-
-    # Yolo params
-    model = network.weights
-    cfg = network.cfg
-    obj = network.meta
+    opt_flows = read_optical_flow(optical_flow)
+    acc_flow = np.cumsum(opt_flows, axis=0)
+    images = read_image_txt_file(txt_file)
+    (cfg, model, obj) = network.get_cfg_weight_meta()
 
     # Tracker
     tracker = Tracker(min_confidence=conf_thresh, dist_thresh=dist_thresh, min_points=min_points)
@@ -1357,11 +1338,11 @@ def detect_and_track_aggr_visu(network, txt_file, optical_flow, label, conf_thre
     create_dir("save/aggr_tracking_visu/")
 
     for i, image in enumerate(images[:1_000]):
-        detections = performDetect(image, thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
-        boxes = Parser.parse_yolo_darknet_detections(detections, image, image_size(image), [label])
+        detections = performDetect(image, thresh=conf_thresh,
+            configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
+        boxes = Parser.parse_yolo_darknet_detections(detections, image,
+            image_size(image), [label])
         tracker.update(boxes, opt_flows[i])
-        acc_dx += opt_flows[i][0]
-        acc_dy += opt_flows[i][1]
 
         img = cv.imread(image)
         img_save = os.path.join("save/aggr_tracking_visu/", os.path.basename(image))
@@ -1370,19 +1351,11 @@ def detect_and_track_aggr_visu(network, txt_file, optical_flow, label, conf_thre
             nb_hits = len(track)
             box = track.barycenter_box()
             label = box.getClassId()
-            box.moveBy(dx=acc_dx, dy=acc_dy)
-            # (xmin, ymin, xmax, ymax) = box.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
+            box.moveBy(dx=acc_flow[i, 0], dy=acc_flow[i, 1])
             (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
 
             confidence = track.mean_confidence()
             color = nb_hits / 10 * 255
-
-            # cv.rectangle(img,
-            #     pt1=(int(xmin), int(ymin)),
-            #     pt2=(int(xmax), int(ymax)),
-            #     color=color,
-            #     thickness=4
-            # )
 
             cv.circle(img,
                 center=(int(x), int(y)),
@@ -1402,14 +1375,47 @@ def detect_and_track_aggr_visu(network, txt_file, optical_flow, label, conf_thre
                 fontFace=cv.FONT_HERSHEY_PLAIN,
                 fontScale=1, color=color, thickness=2)
 
-            # cv.putText(img, text="{}".format(nb_hits), org=(int(xmin), int(ymin-5)), fontFace=cv.FONT_HERSHEY_PLAIN, fontScale=1, color=color, thickness=2)
-            #
-            # cv.putText(img, text="{:.2}".format(confidence), org=(int(xmax), int(ymin-5)), fontFace=cv.FONT_HERSHEY_PLAIN, fontScale=1, color=color, thickness=2)
-            #
-            # cv.putText(img, text="{}".format(label), org=(int(xmax), int(ymax)), fontFace=cv.FONT_HERSHEY_PLAIN, fontScale=1, color=color, thickness=2)
-
         cv.imwrite(img_save, img)
 
+def point_cloud_visu(yolo, txt_file, opt_flow, label, conf_thresh=0.25):
+    # Stuff reading
+    (cfg, weights, obj) = yolo.get_cfg_weight_meta()
+    images = read_image_txt_file(txt_file)
+    opt_flows = read_optical_flow(opt_flow)
+    acc_flow = np.cumsum(opt_flows, axis=0)
+    save_dir = "save/point_cloud_visu/"
+    create_dir(save_dir)
+
+    all_boxes = BoundingBoxes()
+
+    for (i, image) in enumerate(images):
+        (dx, dy) = acc_flow[i, :]
+        detections = performDetect(image, thresh=conf_thresh,
+            configPath=cfg, weightPath=weights, metaPath=obj, showImage=False)
+
+        boxes = Parser.parse_yolo_darknet_detections(detections, image,
+            image_size(image), [label])
+
+        all_boxes += boxes.movedBy(-dx, -dy)
+
+    all_boxes.erase_image_names()
+    all_boxes = associate_boxes_with_image(txt_file, opt_flow, all_boxes)
+
+    for image_name in all_boxes.getNames():
+        boxes = all_boxes.getBoundingBoxesByImageName(image_name)
+        img = cv.imread(image_name)
+        save_img_name = os.path.join(save_dir, os.path.basename(image_name))
+
+        for box in boxes:
+            (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
+
+            cv.circle(img,
+                center=(int(x), int(y)),
+                radius=2,
+                color=(255, 0, 0),
+                thickness=cv.FILLED)
+
+        cv.imwrite(save_img_name, img)
 
 if __name__ == "__main__":
     train_path = "data/train/"
@@ -1430,8 +1436,8 @@ if __name__ == "__main__":
     # model_path = "results/yolov4_1"  # BDD 4.2
     # model_path = "results/yolo_v3_pan_csr50_optimal_2"  # BDD 4.2
     # model_path = "results/yolo_v3_pan_csr50_optimal_3"  # BDD 6.0
-    model_path = "results/yolo_v3_tiny_pan3_7/" # BDD  # BDD 4.2
-    # model_path = "results/yolo_v3_tiny_pan3_8/" # BDD  # BDD 6.0
+    # model_path = "results/yolo_v3_tiny_pan3_7/" # BDD  # BDD 4.2
+    model_path = "results/yolo_v3_tiny_pan3_8/" # BDD  # BDD 6.0
     yolo = YoloModelPath(model_path)
 
     yolo_1 = {
@@ -1455,22 +1461,22 @@ if __name__ == "__main__":
     # number_to_label = {0: "stem_maize", 1: "stem_bean", 2: "stem_leek"}
     fr_to_en = {"mais": "maize", "haricot": "bean", "poireau": "leek", "mais_tige": "stem_maize", "haricot_tige": "stem_bean", "poireau_tige": "stem_leek"}
 
-    # detect_and_track_aggr_visu(yolo, maize_long, maize_opt_flow, "stem_maize", conf_thresh=0.25)
-
+    # detect_and_track_aggr_visu(yolo, bean_long, bean_opt_flow, "stem_bean", conf_thresh=0.25)
+    point_cloud_visu(yolo, bean_long, bean_opt_flow, "stem_bean")
     # optical_flow_visualisation(bean_long)
     # generate_opt_flow(bean_long, name="data/opt_flow_haricot_cal.txt")
     #
-    boxes = detect_and_track_aggr(yolo, maize_long, maize_opt_flow, "stem_maize")
-    dets = associate_boxes_with_image(maize_long, maize_opt_flow, boxes)
-    # [print(box.getImageName(), box.getClassId(), box.getConfidence()) for box in dets]
-    gts = Parser.parse_xml_folder(maize_long_folder, ["mais_tige"])
-    gts.mapLabels(fr_to_en)
-    dets = BoundingBoxes([det for det in dets if det.getImageName() in gts.getNames()])
-    Evaluator().printAPsByClass((dets + gts), thresh=7.5/100, method=EvaluationMethod.Distance)
-    dets.drawAllCenters(save_dir="save/aggr_tracking/")
+    # boxes = detect_and_track_aggr(yolo, bean_long, bean_opt_flow, "stem_bean")
+    # dets = associate_boxes_with_image(bean_long, bean_opt_flow, boxes)
+    # # [print(box.getImageName(), box.getClassId(), box.getConfidence()) for box in dets]
+    # gts = Parser.parse_xml_folder(bean_long_folder, ["haricot_tige"])
+    # gts.mapLabels(fr_to_en)
+    # dets = BoundingBoxes([det for det in dets if det.getImageName() in gts.getNames()])
+    # Evaluator().printAPsByClass((dets + gts), thresh=7.5/100, method=EvaluationMethod.Distance)
+    # dets.drawAllCenters(save_dir="save/aggr_tracking/")
 
-    # boxes_std = performDetectOnFolder(yolo, maize_long_folder, conf_thresh=0.25)
-    # boxes_std = BoundingBoxes([box for box in boxes_std if box.getImageName() in gts.getNames() and box.getClassId() == "stem_maize"])
+    # boxes_std = performDetectOnFolder(yolo, bean_long_folder, conf_thresh=0.25)
+    # boxes_std = BoundingBoxes([box for box in boxes_std if box.getImageName() in gts.getNames() and box.getClassId() == "stem_bean"])
     # Evaluator().printAPsByClass((boxes_std + gts), thresh=7.5/100, method=EvaluationMethod.Distance)
     # boxes_std.drawAllCenters(save_dir="save/not_aggr/")
 
