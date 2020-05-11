@@ -333,5 +333,15 @@ class BoundingBoxes(MutableSequence):
             delayed(self.drawImageCenter)(name, sd) for (name, sd) in zip(names, save_dir)
         )
 
+    def erase_image_names(self):
+        for box in self:
+            box._imageName = "no_name"
+
     def copy(self):
         return BoundingBoxes([box.copy() for box in self._boundingBoxes])
+
+    def __str__(self):
+        description = ""
+        for box in self:
+            description += str(box) + "\n"
+        return description

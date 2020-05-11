@@ -421,3 +421,15 @@ class BoundingBox:
         The behavior of this method is obvious, why are you even reading the doc?
         """
         return copy.deepcopy(self)
+
+    def __str__(self):
+        coords = self.getAbsoluteBoundingBox(BBFormat.XYC)
+        description = "{} {} (x: {:.6}, y: {:.6}, w: {:.6}, h: {:.6})".format(
+            os.path.basename(self._imageName),
+            self._classId,
+            *coords)
+
+        if self._bbType == BBType.Detected:
+            description += " conf.: {:.2%}".format(self._classConfidence)
+
+        return description
