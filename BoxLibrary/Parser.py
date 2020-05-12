@@ -76,8 +76,7 @@ class Parser:
 
         for file in files_with_extension(folder, ".txt"):
             image_name = os.path.join(img_folder, os.path.basename(os.path.splitext(file)[0] + ".jpg"))
-            img_size = PIL.Image.open(image_name).size
-            boxes += Parser.parse_yolo_det_file(file, img_size, classes, bbFormat, typeCoordinates)
+            boxes += Parser.parse_yolo_det_file(file, image_name, classes, bbFormat, typeCoordinates)
 
         return boxes
 
@@ -110,12 +109,12 @@ class Parser:
         return boxes
 
     @staticmethod
-    def parse_yolo_det_file(file, img_size=None, classes=None, bbFormat=BBFormat.XYWH, typeCoordinates=CoordinatesType.Relative):
+    def parse_yolo_det_file(file, image_name, classes=None, bbFormat=BBFormat.XYWH, typeCoordinates=CoordinatesType.Relative):
         """
         If coordinates are relative you should provide img_size.
         """
         boxes = BoundingBoxes()
-        image_name = os.path.splitext(file)[0] + '.jpg'
+        img_size = PIL.Image.open(image_name).size
 
         if classes:
             classes = [str(item) for item in classes]
