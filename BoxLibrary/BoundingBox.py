@@ -52,6 +52,7 @@ class BoundingBox:
         # If relative coordinates, convert to absolute values
         # For relative coords: (x,y,w,h)=(X_center/img_width , Y_center/img_height)
         if (typeCoordinates == CoordinatesType.Relative):
+            """!!! Input is (xCenter, yCenter, w, h), rel"""
             if format == BBFormat.XYWH:
                 (self._x, self._y, self._x2, self._y2) = convertToAbsoluteValues(imgSize, (x, y, w, h))
                 self._w = self._x2 - self._x
@@ -103,6 +104,7 @@ class BoundingBox:
             return (x, y, self._w, self._h)
 
     def getRelativeBoundingBox(self, imgSize=None):
+        """(xCenter, yCenter, w, h)"""
         if imgSize is None and (self._width_img is None or self._height_img) is None:
             raise IOError(
                 "Parameter 'imgSize' is required. It is necessary to inform the image size.")

@@ -142,7 +142,7 @@ class BoundingBoxes(MutableSequence):
         Returns:
             BoundingBoxes: The moved boxes.
         """
-        assert len(self.getNames()) <= 1, "'movedBy()' is only available for BoundingBoxes representing one image"
+        assert len(self.getNames()) <= 1, "'movedBy()' is only available for BoundingBoxes representing one image. Image names: {}".format(self.getNames())
 
         return BoundingBoxes([box.movedBy(dx, dy, typeCoordinates, imgSize) for box in self])
 
@@ -164,7 +164,7 @@ class BoundingBoxes(MutableSequence):
             IOError: imgSize should be informed when using CoordinatesType.Relative.
             AssertionError: Only use this method for a BoundingBoxes object storing boxes for one image.
         """
-        assert len(self.getNames()) <= 1, "'moveBy()' is only available for BoundingBoxes representing one image"
+        assert len(self.getNames()) <= 1, "'moveBy()' is only available for BoundingBoxes representing one image. Image names: {}".format(self.getNames())
 
         for box in self:
             box.moveBy(dx, dy, typeCoordinates, imgSize)
