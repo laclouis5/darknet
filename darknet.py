@@ -45,7 +45,7 @@ from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
 
-from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, mean_opt_flow, convert_to_grayscale, egi_mask, generate_opt_flow, Track, Tracker, associate_boxes_with_image, gts_in_unique_ref, optical_flow_visualisation, evaluate_aggr, read_optical_flow, read_image_txt_file
+from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, mean_opt_flow, convert_to_grayscale, egi_mask, generate_opt_flow, Track, Tracker, associate_boxes_with_image, gts_in_unique_ref, optical_flow_visualisation, evaluate_aggr, read_optical_flow, read_image_txt_file, associate_tracks_with_image, draw_tracked_confidence_ellipse
 
 from reg_plane import fit_plane, reg_score
 
@@ -1322,7 +1322,28 @@ def detect_and_track_aggr(network, txt_file, optical_flow, label, conf_thresh=0.
 
     tracker.print_stats_for_tracks(tracker.get_filtered_tracks())
 
-    return tracker.get_filtered_boxes()
+    return tracker
+
+def detect_and_track_aggr_2(boxes, txt_file, optical_flow,
+    conf_thresh=0.25, min_points=8, dist_thresh=7.5/100
+):
+    """
+    Tracking by aggregation without recomputing the detections with
+    Darknet.
+    """
+    opt_flows = read_optical_flow(optical_flow)
+    images = read_image_txt_file(txt_file)
+
+    # Tracker
+    tracker = Tracker(min_confidence=conf_thresh, min_points=min_points, dist_thresh=dist_thresh)
+
+    for i, image in enumerate(images):  # [:300]
+        image_boxes = boxes.getBoundingBoxesByImageName(image)
+        tracker.update(image_boxes, opt_flows[i])
+
+    print(tracker)
+
+    return tracker
 
 def detect_and_track_aggr_visu(network, txt_file, optical_flow, label, conf_thresh=0.25, min_points=8, dist_thresh=7.5/100):
     # Opt flow stuff reading
@@ -1459,21 +1480,39 @@ if __name__ == "__main__":
     label_to_number = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
     number_to_label = {0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"}
     # number_to_label = {0: "stem_maize", 1: "stem_bean", 2: "stem_leek"}
-    fr_to_en = {"mais": "maize", "haricot": "bean", "poireau": "leek", "mais_tige": "stem_maize", "haricot_tige": "stem_bean", "poireau_tige": "stem_leek"}
+    fr_to_en = {"mais": "maize", "haricot": "bean", "poireau": "leek", "mais_tige": "stem_maize",  "haricot_tige": "stem_bean", "poireau_tige": "stem_leek"}
+    en_to_fr = {"maize": "mais", "bean": "haricot", "leek": "poireau", "stem_maize": "mais_tige","stem_bean": "haricot_tige", "stem_leek": "poireau_tige"}
 
     # detect_and_track_aggr_visu(yolo, bean_long, bean_opt_flow, "stem_bean", conf_thresh=0.25)
-    point_cloud_visu(yolo, bean_long, bean_opt_flow, "stem_bean")
+    # point_cloud_visu(yolo, bean_long, bean_opt_flow, "stem_bean")
     # optical_flow_visualisation(bean_long)
     # generate_opt_flow(bean_long, name="data/opt_flow_haricot_cal.txt")
-    #
-    # boxes = detect_and_track_aggr(yolo, bean_long, bean_opt_flow, "stem_bean")
-    # dets = associate_boxes_with_image(bean_long, bean_opt_flow, boxes)
-    # # [print(box.getImageName(), box.getClassId(), box.getConfidence()) for box in dets]
-    # gts = Parser.parse_xml_folder(bean_long_folder, ["haricot_tige"])
+
+    boxes = Parser.parse_yolo_det_folder("save/stem_bean_temp/",
+        img_folder=bean_long_folder,
+        bbFormat=BBFormat.XYX2Y2,
+        typeCoordinates=CoordinatesType.Absolute,
+        classes=["stem_bean"])
+    tracker = detect_and_track_aggr_2(boxes, bean_long, bean_opt_flow)
+    tracks = associate_tracks_with_image(bean_long, bean_opt_flow, tracker)
+    gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
+    gts.mapLabels(fr_to_en)
+    tracks = {k: v for (k, v) in tracks.items() if k in gts.getNames()}
+    draw_tracked_confidence_ellipse(tracks)
+
+    # boxes = Parser.parse_yolo_det_folder("save/stem_maize_temp/",
+    #     img_folder=maize_long_folder,
+    #     bbFormat=BBFormat.XYX2Y2,
+    #     typeCoordinates=CoordinatesType.Absolute,
+    #     classes=["stem_maize"])
+    # boxes = detect_and_track_aggr_2(boxes, maize_long, maize_opt_flow).get_filtered_boxes()
+    # # boxes = detect_and_track_aggr(yolo, maize_long, maize_opt_flow, "stem_maize").get_filtered_boxes()
+    # dets = associate_boxes_with_image(maize_long, maize_opt_flow, boxes)
+    # gts = Parser.parse_xml_folder(maize_long_folder, [en_to_fr["stem_maize"]])
     # gts.mapLabels(fr_to_en)
     # dets = BoundingBoxes([det for det in dets if det.getImageName() in gts.getNames()])
     # Evaluator().printAPsByClass((dets + gts), thresh=7.5/100, method=EvaluationMethod.Distance)
-    # dets.drawAllCenters(save_dir="save/aggr_tracking/")
+    # # dets.drawAllCenters(save_dir="save/aggr_tracking/")
 
     # boxes_std = performDetectOnFolder(yolo, bean_long_folder, conf_thresh=0.25)
     # boxes_std = BoundingBoxes([box for box in boxes_std if box.getImageName() in gts.getNames() and box.getClassId() == "stem_bean"])

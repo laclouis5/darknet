@@ -1,4 +1,7 @@
 # Created by Louis LAC 2019
+from collections import namedtuple, defaultdict
+from matplotlib.patches import Ellipse
+import matplotlib.transforms as transforms
 
 from skimage import io, data, filters, feature, color, exposure, morphology
 import numpy as np
@@ -18,7 +21,7 @@ from collections.abc import MutableSequence
 
 from reg_plane import fit_plane, reg_score
 
-def confidence_ellipse(x, y, n=3):
+def confidence_ellipse(x, y, n_std=3):
     """
     Returns the confidence ellipse for 2 correlated distributions up
     to some confidence n * sigma.
@@ -31,18 +34,30 @@ def confidence_ellipse(x, y, n=3):
     Returns:
     - (x, y): center of the ellipse
     - (w, h): width and height of the ellipse
-    - angle: inclinaison of the ellispeÒ
+    - angle: inclinaison of the ellispe
 
     """
+    def eigsorted(cov):
+        vals, vecs = np.linalg.eigh(cov)
+        order = vals.argsort()[::-1]
+        return vals[order], vecs[:, order]
+
     covariance = np.cov(x, y)
-    eig_vals, eig_vects = np.linalg.eig(cov)
-    eig_vals = np.sqrt(eig_vals)
+    eig_vals, eig_vects = eigsorted(covariance)
 
-    (x, y) = np.mean(x), np.mean(y)
-    (w, h) = eig_vals[0] * n * 2, eig_vals[1] * n * 2
-    angle = np.rad2deg(np.arccos(v[0, 0]))
+    (ex, ey) = np.mean(x), np.mean(y)
+    (w, h) = 2 * n_std * np.sqrt(eig_vals)
+    angle = np.degrees(np.arctan2(*eig_vects[:, 0][::-1]))
 
-    return (x, y, w, h, angle)
+    return (ex, ey, w, h, angle)
+
+def get_correlated_dataset(n, dependency, mu, scale):
+    latent = np.random.randn(n, 2)
+    dependent = latent.dot(dependency)
+    scaled = dependent * scale
+    scaled_with_offset = scaled + mu
+    # return x and y of the new, correlated dataset
+    return scaled_with_offset[:, 0], scaled_with_offset[:, 1]
 
 class Tracker:
     # Can add: if box touches image border remove it
@@ -81,8 +96,6 @@ class Tracker:
         for det_idx in unmatched_dets:
             new_track = Track(history=[detections[det_idx]])
             self.tracks.append(new_track)
-
-        self.print_stats_for_tracks()
 
     def coco_assignement(self, detections, tracks):
         """
@@ -181,6 +194,8 @@ class Tracker:
             (x, y, _, _) = track.barycenter_box().getAbsoluteBoundingBox(format=BBFormat.XYC)
             print("Track {}: len: {}, pos: (x: {:.6}, y: {:.6}), conf: {:.6}".format(track.track_id, len(track), x, y, track.mean_confidence()))
 
+    def __str__(self):
+        return "\n".join([str(track) for track in self.tracks])
 
 class Track(MutableSequence):
     track_id = 0
@@ -232,6 +247,21 @@ class Track(MutableSequence):
             classConfidence=self.mean_confidence(),
             format=BBFormat.XYC)
 
+    def confidence_ellipse(self, n_std=3):
+        coords = np.array([box.getAbsoluteBoundingBox(BBFormat.XYC) for box in self.history])
+        (x, y) = coords[:, 0], coords[:, 1]
+        return confidence_ellipse(x, y, n_std)
+
+    def movedBy(self, dx, dy):
+        boxes = [box.movedBy(dx, dy) for box in self.history]
+        return Track(history=boxes)
+
+    def __str__(self):
+        (x, y, _, _) = self.barycenter_box().getAbsoluteBoundingBox(BBFormat.XYC)
+        return "Id: {}, len: {}, pos: (x: {:.6}, y: {:.6}), conf.: {:.4}".format(
+            self.track_id, len(self), x, y, self.mean_confidence()
+        )
+
 def gts_in_unique_ref(txt_file, folder, optical_flow, label):
     opt_flows = read_optical_flow(optical_flow)
     print(opt_flows)
@@ -268,6 +298,31 @@ def evaluate_aggr(detections, gts):
     image_names = gts.getNames()
     detections = BoundingBoxes([det for det in detections if det.getImageName() in gts.getNames()])
     Evaluator().printAPsByClass((detections + gts), thresh=7.5/100, method=EvaluationMethod.Distance)
+
+def associate_tracks_with_image(txt_file, optical_flow, tracker):
+    images = read_image_txt_file(txt_file)
+    optical_flows = read_optical_flow(optical_flow)
+    (img_width, img_height) = image_size(images[0])
+    (xmin, ymin, xmax, ymax) = (0, 0, img_width, img_height)
+    output = defaultdict(list)
+
+    tracks = tracker.get_filtered_tracks()
+    bary_boxes = tracker.get_filtered_boxes()
+
+    for (i, image) in enumerate(images):
+        (dx, dy) = optical_flows[i]
+
+        xmin -= dx
+        ymin -= dy
+        xmax -= dx
+        ymax -= dy
+
+        for (j, box) in enumerate(bary_boxes):
+            if box.centerIsIn([xmin, ymin, xmax, ymax]):
+                track = tracks[j].movedBy(-xmin, -ymin)
+                output[image].append(track)
+
+    return output
 
 def associate_boxes_with_image(txt_file, optical_flow, boxes):
     images = read_image_txt_file(txt_file)
@@ -1053,44 +1108,97 @@ def RMSE_opt_flow(txt_file):
     plt.title("Optical Flow Mask Comparison - Planar Opt Flow")
     plt.show()
 
+def draw_tracked_confidence_ellipse(tracks_dict):
+    save_dir = "save/aggr_tracking_ellispe/"
+    create_dir(save_dir)
+
+    for (image, tracks) in tracks_dict.items():
+        img = cv.imread(image)
+
+        for track in tracks:
+            for box in track:
+                (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
+
+                cv.circle(img,
+                    center=(int(x), int(y)), radius=2,
+                    color=(255, 0, 0), thickness=cv.FILLED)
+
+            (ex, ey, w, h, a) = track.confidence_ellipse(n_std=1)
+
+            cv.ellipse(img,
+                center=(int(ex), int(ey)), axes=(int(w), int(h)), angle=a,
+                startAngle=0, endAngle=360, color=(0, 0, 255), thickness=1)
+
+            (ex, ey, w, h, a) = track.confidence_ellipse(n_std=3)
+
+            cv.ellipse(img,
+                center=(int(ex), int(ey)), axes=(int(w), int(h)), angle=a,
+                startAngle=0, endAngle=360, color=(0, 0, 128), thickness=1)
+
+        save_name = os.path.join(save_dir, os.path.basename(image))
+        cv.imwrite(save_name, img)
+
 if __name__ == "__main__":
-    txt_file = "data/haricot_debug_long_2.txt"
+    colors = [(1, 0, 0), (0.5, 0, 0), (0.25, 0, 0)]
+
+    mu = [10, 100]
+    scales = [3, 5]
+    cov_mat = [
+        [0.9, -0.4],
+        [0.1, -0.6]
+    ]
+
+    (x, y) = get_correlated_dataset(100, cov_mat, mu, scales)
+
+    figure = plt.figure()
+    axis = plt.subplot(111)
+    axis.axis("equal")
+    for n in range(1, 4):
+        (ex, ey, w, h, angle) = confidence_ellipse(x, y, n_std=n)
+        print("x: {:.4}, y: {:.4}, w: {:.4}, h: {:.4}, angle: {:.4}".format(ex, ey, w, h, angle))
+        ellipse = Ellipse(xy=(ex, ey), width=w, height=h, angle=angle, color=colors[n-1])
+        ellipse.set_facecolor("none")
+        axis.add_artist(ellipse)
+    plt.scatter(x, y)
+    plt.show()
+
+    # txt_file = "data/haricot_debug_long_2.txt"
 
     # opt_flow_plane(txt_file)
-    generate_opt_flow(txt_file, "opt_flow_mean_none.txt", masking_border=False, mask_egi=False)
-    generate_opt_flow(txt_file, "opt_flow_mean_all.txt", masking_border=True, mask_egi=True)
-    generate_opt_flow(txt_file, "opt_flow_mean_egi.txt", masking_border=False, mask_egi=True)
-    generate_opt_flow(txt_file, "opt_flow_mean_border.txt", masking_border=True, mask_egi=False)
-
-    # RMSE_opt_flow(txt_file)
-
-    with open("opt_flow_mean_none.txt", "r") as f:
-        content = f.readlines()
-        content = np.array([c.strip().split() for c in content], dtype=np.float)
-        dx1, dy1 = content[:, 0], content[:, 1]
-
-    with open("opt_flow_mean_all.txt", "r") as f:
-        content = f.readlines()
-        content = np.array([c.strip().split() for c in content], dtype=np.float)
-        dx2, dy2 = content[:, 0], content[:, 1]
-
-    with open("opt_flow_mean_egi.txt", "r") as f:
-        content = f.readlines()
-        content = np.array([c.strip().split() for c in content], dtype=np.float)
-        dx3, dy3 = content[:, 0], content[:, 1]
-
-    with open("opt_flow_mean_border.txt", "r") as f:
-        content = f.readlines()
-        content = np.array([c.strip().split() for c in content], dtype=np.float)
-        dx4, dy4 = content[:, 0], content[:, 1]
-
-    plt.plot(dx1, label="None")
-    plt.plot(dx2, label="All")
-    plt.plot(dx3, label="EGI")
-    plt.plot(dx4, label="Border")
-    plt.legend()
-    plt.title("Mean Opt flow in X axis w.r.t masking")
-    plt.show()
+    # generate_opt_flow(txt_file, "opt_flow_mean_none.txt", masking_border=False, mask_egi=False)
+    # generate_opt_flow(txt_file, "opt_flow_mean_all.txt", masking_border=True, mask_egi=True)
+    # generate_opt_flow(txt_file, "opt_flow_mean_egi.txt", masking_border=False, mask_egi=True)
+    # generate_opt_flow(txt_file, "opt_flow_mean_border.txt", masking_border=True, mask_egi=False)
+    #
+    # # RMSE_opt_flow(txt_file)
+    #
+    # with open("opt_flow_mean_none.txt", "r") as f:
+    #     content = f.readlines()
+    #     content = np.array([c.strip().split() for c in content], dtype=np.float)
+    #     dx1, dy1 = content[:, 0], content[:, 1]
+    #
+    # with open("opt_flow_mean_all.txt", "r") as f:
+    #     content = f.readlines()
+    #     content = np.array([c.strip().split() for c in content], dtype=np.float)
+    #     dx2, dy2 = content[:, 0], content[:, 1]
+    #
+    # with open("opt_flow_mean_egi.txt", "r") as f:
+    #     content = f.readlines()
+    #     content = np.array([c.strip().split() for c in content], dtype=np.float)
+    #     dx3, dy3 = content[:, 0], content[:, 1]
+    #
+    # with open("opt_flow_mean_border.txt", "r") as f:
+    #     content = f.readlines()
+    #     content = np.array([c.strip().split() for c in content], dtype=np.float)
+    #     dx4, dy4 = content[:, 0], content[:, 1]
+    #
+    # plt.plot(dx1, label="None")
+    # plt.plot(dx2, label="All")
+    # plt.plot(dx3, label="EGI")
+    # plt.plot(dx4, label="Border")
+    # plt.legend()
+    # plt.title("Mean Opt flow in X axis w.r.t masking")
+    # plt.show()
 
     # err_dx = np.sqrt(np.mean(np.square(dx1 - dx2)))
     # print("RMSE X: {}".format(err_dx))
