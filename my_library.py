@@ -82,7 +82,7 @@ class Tracker:
         print("OF: (x: {:.6}, y: {:.6})".format(self.acc_flow[0], self.acc_flow[1]))
 
         tracked_boxes = self.get_all_boxes()
-        detections.moveBy(-self.acc_flow[0], -self.acc_flow[1])
+        detections = detections.movedBy(-self.acc_flow[0], -self.acc_flow[1])
 
         # matches, unmatched_dets, unmatched_tracks = self.assignment_match_indices(detections, tracked_boxes)
         matches, unmatched_dets, unmatched_tracks = self.coco_assignement(detections, tracked_boxes)
