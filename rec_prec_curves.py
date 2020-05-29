@@ -47,19 +47,33 @@ def split_by_dist(data, nb_splits):
 
 def plot_rec_prec_curve(data):
     plt.figure()
-    for d in data:
+    for i, d in enumerate(data):
         dist = d[0, 1]
         recall = d[:, 6]
         precision = d[:, 7]
-        plt.plot(recall, precision, label="dist: {:.0%}".format(dist))
+        best = d[np.argmax(d[:, 8], axis=0), :]
+        (best_rec, best_pre, best_f1) = best[6], best[7], best[8]
+
+        plt.plot(recall, precision, label="maxDist: {:.0%}".format(dist))
+
+        # if i == 1:  # Bean
+        if i == 2:  # Maize
+            plt.annotate("{:.2%}".format(best_f1), (best_rec, best_pre))
+
+    # plt.annotate("{:.2%}".format(0.8042), (0.8085 + 0.005, 0.8000 + 0.005))  # Bean
+    plt.annotate("{:.2%}".format(0.7593), (0.6613 + 0.005, 0.8913 + 0.005))  # Maize
+    # plt.plot([0.8085], [0.8000], "rx", label="without aggregation")  # Bean
+    plt.plot([0.6613], [0.8913], "rx", label="without aggregation")  # Maize
 
     percents = np.linspace(0, 1, 11)
     plt.xlabel("Recall")
     plt.ylabel("Precision")
     plt.xticks(percents, ["{:.0%}".format(p) for p in percents])
     plt.yticks(percents, ["{:.0%}".format(p) for p in percents])
-    plt.legend()
-    plt.title("Precision-recall curve as a function of minPoints and maxDist")
+    plt.legend(loc="lower left")
+    plt.title("Precision-recall curve as a function of $minDets$ and $maxDist$")
+    plt.xlim([0.6, 1])  # 0.4
+    plt.ylim([0.6, 1])  # 0.6
     plt.show()
 
 def plot_f1_curve(data):
@@ -77,17 +91,16 @@ def plot_f1_curve(data):
     plt.xticks(points)
     plt.yticks(percents, ["{:.0%}".format(p) for p in percents])
     plt.legend()
-    plt.title("F1-score as a function of minPoints and maxDist")
+    plt.title("F1-score as a function of minDets and maxDist")
     plt.show()
 
 def main():
-    file = "aggr_grid_search_bean.csv"
+    file = "aggr_grid_search_maize.csv"
     data = read_csv_file(file)
-    data = add_info(data, 94)
+    data = add_info(data, 124) # 94  / 124
     data_by_dist = split_by_dist(data, 20)
 
-    # plot_rec_prec_curve(data_by_dist[2::2])
-    plot_f1_curve(data_by_dist[2::2])
+    plot_rec_prec_curve(data_by_dist[2::3])
 
     return 0
 

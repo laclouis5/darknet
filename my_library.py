@@ -6,6 +6,7 @@ import matplotlib.transforms as transforms
 from skimage import io, data, filters, feature, color, exposure, morphology
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import cm
 from mpl_toolkits.mplot3d import Axes3D
 try:
     import cv2 as cv
@@ -17,11 +18,12 @@ from PIL import Image
 from BoxLibrary import *
 
 from scipy.optimize import linear_sum_assignment
+from scipy import stats
 from collections.abc import MutableSequence
 
 from reg_plane import fit_plane, reg_score
 
-def confidence_ellipse(x, y, n_std=3):
+def confidence_ellipse(x, y, n_std=2):
     """
     Returns the confidence ellipse for 2 correlated distributions up
     to some confidence n * sigma.
@@ -29,13 +31,12 @@ def confidence_ellipse(x, y, n_std=3):
     Params:
     - x (1D array): first distribution
     - y (1D array): secon distribution
-    - n (int): confidence as `n * sigma`
+    - n_std (int): confidence as `n * sigma`
 
     Returns:
     - (x, y): center of the ellipse
     - (w, h): width and height of the ellipse
     - angle: inclinaison of the ellispe
-
     """
     def eigsorted(cov):
         vals, vecs = np.linalg.eigh(cov)
@@ -46,7 +47,15 @@ def confidence_ellipse(x, y, n_std=3):
     eig_vals, eig_vects = eigsorted(covariance)
 
     (ex, ey) = np.mean(x), np.mean(y)
-    (w, h) = 2 * n_std * np.sqrt(eig_vals)
+    # (w, h) = 2 * n_std * np.sqrt(eig_vals)
+
+    # q = 2 * stats.norm.cdf(n_std) - 1
+    # r2 = stats.chi2.ppf(q, 2)
+    # (w, h) = 2 * np.sqrt(eig_vals * r2)
+
+    r = stats.f.ppf(0.95, 2, len(x))
+    (w, h) = 2 * np.sqrt(eig_vals * r)
+
     angle = np.degrees(np.arctan2(*eig_vects[:, 0][::-1]))
 
     return (ex, ey, w, h, angle)
@@ -135,7 +144,6 @@ class Tracker:
                     matches.append([i, j_min_distance])
                 else:
                     ignored.append(i)
-                # Maybe add a merge here if visited
 
         if len(matches) == 0:
             matches = np.empty((0, 2), dtype=int)
@@ -247,7 +255,7 @@ class Track(MutableSequence):
             classConfidence=self.mean_confidence(),
             format=BBFormat.XYC)
 
-    def confidence_ellipse(self, n_std=3):
+    def confidence_ellipse(self, n_std=2):
         coords = np.array([box.getAbsoluteBoundingBox(BBFormat.XYC) for box in self.history])
         (x, y) = coords[:, 0], coords[:, 1]
         return confidence_ellipse(x, y, n_std)
@@ -1115,25 +1123,21 @@ def draw_tracked_confidence_ellipse(tracks_dict):
     for (image, tracks) in tracks_dict.items():
         img = cv.imread(image)
 
-        for track in tracks:
+        cmap = cm.get_cmap(cm.rainbow)(np.linspace(0.0, 1.0, len(tracks)))[:, :3]
+        for i, track in enumerate(tracks):
+            color = cmap[i] * 255
             for box in track:
                 (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
 
                 cv.circle(img,
                     center=(int(x), int(y)), radius=2,
-                    color=(255, 0, 0), thickness=cv.FILLED)
+                    color=color, thickness=cv.FILLED)
 
             (ex, ey, w, h, a) = track.confidence_ellipse(n_std=1)
 
             cv.ellipse(img,
                 center=(int(ex), int(ey)), axes=(int(w), int(h)), angle=a,
-                startAngle=0, endAngle=360, color=(0, 0, 255), thickness=1)
-
-            (ex, ey, w, h, a) = track.confidence_ellipse(n_std=3)
-
-            cv.ellipse(img,
-                center=(int(ex), int(ey)), axes=(int(w), int(h)), angle=a,
-                startAngle=0, endAngle=360, color=(0, 0, 128), thickness=1)
+                startAngle=0, endAngle=360, color=color, thickness=2)
 
         save_name = os.path.join(save_dir, os.path.basename(image))
         cv.imwrite(save_name, img)
