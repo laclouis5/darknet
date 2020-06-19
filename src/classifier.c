@@ -69,13 +69,18 @@ void train_classifier(char *datacfg, char *cfgfile, char *weightfile, int *gpus,
     int topk_data = option_find_int(options, "top", 5);
     char topk_buff[10];
     sprintf(topk_buff, "top%d", topk_data);
-    if (classes != net.layers[net.n - 1].inputs) {
+    layer l = net.layers[net.n - 1];
+    if (classes != l.outputs && (l.type == SOFTMAX || l.type == COST)) {
         printf("\n Error: num of filters = %d in the last conv-layer in cfg-file doesn't match to classes = %d in data-file \n",
-            net.layers[net.n - 1].inputs, classes);
+            l.outputs, classes);
         getchar();
     }
 
     char **labels = get_labels(label_list);
+    if (net.unsupervised) {
+        free(labels);
+        labels = NULL;
+    }
     list *plist = get_paths(train_list);
     char **paths = (char **)list_to_array(plist);
     printf("%d\n", plist->size);
@@ -87,8 +92,10 @@ void train_classifier(char *datacfg, char *cfgfile, char *weightfile, int *gpus,
     args.h = net.h;
     args.c = net.c;
     args.threads = 32;
+    if (net.contrastive && args.threads > net.batch/2) args.threads = net.batch / 2;
     args.hierarchy = net.hierarchy;
 
+    args.contrastive = net.contrastive;
     args.dontuse_opencv = dontuse_opencv;
     args.min = net.min_crop;
     args.max = net.max_crop;
@@ -116,7 +123,7 @@ void train_classifier(char *datacfg, char *cfgfile, char *weightfile, int *gpus,
 #ifdef OPENCV
     //args.threads = 3;
     mat_cv* img = NULL;
-    float max_img_loss = 10;
+    float max_img_loss = net.max_chart_loss;
     int number_of_lines = 100;
     int img_size = 1000;
     char windows_name[100];
@@ -182,12 +189,20 @@ void train_classifier(char *datacfg, char *cfgfile, char *weightfile, int *gpus,
         int draw_precision = 0;
         if (calc_topk && (i >= calc_topk_for_each || i == net.max_batches)) {
             iter_topk = i;
-            topk = validate_classifier_single(datacfg, cfgfile, weightfile, &net, topk_data); // calc TOP-n
-            printf("\n accuracy %s = %f \n", topk_buff, topk);
+            if (net.contrastive && l.type != SOFTMAX && l.type != COST) {
+                int k;
+                for (k = 0; k < net.n; ++k) if (net.layers[k].type == CONTRASTIVE) break;
+                topk = *(net.layers[k].loss) / 100;
+                sprintf(topk_buff, "Contr");
+            }
+            else {
+                topk = validate_classifier_single(datacfg, cfgfile, weightfile, &net, topk_data); // calc TOP-n
+                printf("\n accuracy %s = %f \n", topk_buff, topk);
+            }
             draw_precision = 1;
         }
 
-        time_remaining = (net.max_batches - i)*(what_time_is_it_now() - start) / 60 / 60;
+        time_remaining = ((net.max_batches - i) / ngpus) * (what_time_is_it_now() - start) / 60 / 60;
         // set initial value, even if resume training from 10000 iteration
         if (avg_time < 0) avg_time = time_remaining;
         else avg_time = alpha_time * time_remaining + (1 -  alpha_time) * avg_time;
@@ -238,7 +253,7 @@ void train_classifier(char *datacfg, char *cfgfile, char *weightfile, int *gpus,
     free(nets);
 
     //free_ptrs((void**)labels, classes);
-    free(labels);
+    if(labels) free(labels);
     free_ptrs((void**)paths, plist->size);
     free_list(plist);
     free(nets);
@@ -818,9 +833,10 @@ void predict_classifier(char *datacfg, char *cfgfile, char *weightfile, char *fi
     if(!name_list) name_list = option_find_str(options, "labels", "data/labels.list");
     int classes = option_find_int(options, "classes", 2);
     printf(" classes = %d, output in cfg = %d \n", classes, net.layers[net.n - 1].c);
-    if (classes != net.layers[net.n - 1].inputs) {
+    layer l = net.layers[net.n - 1];
+    if (classes != l.outputs && (l.type == SOFTMAX || l.type == COST)) {
         printf("\n Error: num of filters = %d in the last conv-layer in cfg-file doesn't match to classes = %d in data-file \n",
-            net.layers[net.n - 1].inputs, classes);
+            l.outputs, classes);
         getchar();
     }
     if (top == 0) top = option_find_int(options, "top", 1);
