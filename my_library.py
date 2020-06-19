@@ -21,7 +21,8 @@ from scipy.optimize import linear_sum_assignment
 from scipy import stats
 from collections.abc import MutableSequence
 
-from reg_plane import fit_plane, reg_score
+from reg_plane import fit_plane, reg_score, Equation, BivariateFunction
+import image_transform as imtf
 
 def confidence_ellipse(x, y, n_std=2):
     """
@@ -45,16 +46,16 @@ def confidence_ellipse(x, y, n_std=2):
 
     covariance = np.cov(x, y)
     eig_vals, eig_vects = eigsorted(covariance)
+    eig_vals = np.maximum(0, eig_vals)
 
     (ex, ey) = np.mean(x), np.mean(y)
     # (w, h) = 2 * n_std * np.sqrt(eig_vals)
+    q = 2 * stats.norm.cdf(n_std) - 1
+    r2 = stats.chi2.ppf(q, 2)
+    (w, h) = 2 * np.sqrt(eig_vals * r2)
 
-    # q = 2 * stats.norm.cdf(n_std) - 1
-    # r2 = stats.chi2.ppf(q, 2)
-    # (w, h) = 2 * np.sqrt(eig_vals * r2)
-
-    r = stats.f.ppf(0.95, 2, len(x))
-    (w, h) = 2 * np.sqrt(eig_vals * r)
+    # r = stats.f.ppf(0.95, 2, len(x) - 2) * 2 / (len(x) - 2)  # Rajouter facteur !!!
+    # (w, h) = np.sqrt(eig_vals * r)  # demi-grand axe
 
     angle = np.degrees(np.arctan2(*eig_vects[:, 0][::-1]))
 
@@ -77,21 +78,23 @@ class Tracker:
         self.dist_thresh = dist_thresh
         self.tracks = []
         self.optical_flows = []
-        self.acc_flow = [0, 0]
         self.life_time = 0
 
     def update(self, detections, optical_flow):
         self.life_time += 1
-        self.acc_flow[0] += optical_flow[0]
-        self.acc_flow[1] += optical_flow[1]
-        self.optical_flows.append([optical_flow[0], optical_flow[1]])
+        self.optical_flows.append(optical_flow)
 
         print(f"Epoch: {self.life_time}")
         print(f"Len dets: {len(detections)}, Len tracks: {len(self.tracks)}")
-        print("OF: (x: {:.6}, y: {:.6})".format(self.acc_flow[0], self.acc_flow[1]))
+        # print("OF: (x: {:.6}, y: {:.6})".format(self.acc_flow[0], self.acc_flow[1]))
 
         tracked_boxes = self.get_all_boxes()
-        detections = detections.movedBy(-self.acc_flow[0], -self.acc_flow[1])
+
+        for det in detections:
+            (x, y, _, _) = det.getAbsoluteBoundingBox(BBFormat.XYC)
+            (mx, my) = self.deplacement_for_coord(x, y)
+            det.moveBy(mx, my)
+        # detections = detections.movedBy(-self.acc_flow[0], -self.acc_flow[1])
 
         # matches, unmatched_dets, unmatched_tracks = self.assignment_match_indices(detections, tracked_boxes)
         matches, unmatched_dets, unmatched_tracks = self.coco_assignement(detections, tracked_boxes)
@@ -184,6 +187,14 @@ class Tracker:
         unmatched_tracks = np.array([t for t in range(len(tracks)) if t not in matches[:, 1]])
 
         return matches, unmatched_dets, unmatched_tracks
+
+    def deplacement_for_coord(self, x, y):
+        x0, y0 = x, y
+        for f in reversed(self.optical_flows):
+            (vx, vy) = f(x0, y0)
+            x0 += vx
+            y0 += vy
+        return (x0 - x, y0 - y)
 
     def get_all_boxes(self):
         return [track.barycenter_box() for track in self.tracks]
@@ -309,7 +320,7 @@ def evaluate_aggr(detections, gts):
 
 def associate_tracks_with_image(txt_file, optical_flow, tracker):
     images = read_image_txt_file(txt_file)
-    optical_flows = read_optical_flow(optical_flow)
+    optical_flows = OpticalFlow.read(optical_flow)
     (img_width, img_height) = image_size(images[0])
     (xmin, ymin, xmax, ymax) = (0, 0, img_width, img_height)
     output = defaultdict(list)
@@ -334,20 +345,17 @@ def associate_tracks_with_image(txt_file, optical_flow, tracker):
 
 def associate_boxes_with_image(txt_file, optical_flow, boxes):
     images = read_image_txt_file(txt_file)
-    opt_flows = read_optical_flow(optical_flow)
+    opt_flows = OpticalFlow.read(optical_flow)
     (img_width, img_height) = image_size(images[0])
     xmin, ymin, xmax, ymax = 0, 0, img_width, img_height
     out_boxes = BoundingBoxes()
 
     for i, image in enumerate(images):
-        opt_flow = opt_flows[i]
-        dx = opt_flow[0]
-        dy = opt_flow[1]
-
-        xmin -= dx
-        ymin -= dy
-        xmax -= dx
-        ymax -= dy
+        (dx, dy) = opt_flows[i]
+        xmin += dx
+        ymin += dy
+        xmax += dx
+        ymax += dy
 
         image_boxes = boxes.boxes_in([xmin, ymin, xmax, ymax])
         image_boxes = image_boxes.movedBy(-xmin, -ymin)
@@ -357,6 +365,32 @@ def associate_boxes_with_image(txt_file, optical_flow, boxes):
             out_boxes.append(BoundingBox(imageName=image, classId=box.getClassId(), x=x, y=y, w=w, h=h, imgSize=box.getImageSize(), bbType=BBType.Detected, classConfidence=box.getConfidence()))
 
     return out_boxes
+
+def move_gts_in_unique_ref(boxes, txt_file, opt_flow_file):
+    images = read_image_txt_file(txt_file)
+    flows = OpticalFlow.read(opt_flow_file)
+    flows = [BivariateFunction(
+        fn1=lambda x, y, fl=flow[0]: fl,
+        fn2=lambda x, y, fl=flow[1]: fl) for flow in flows
+    ]
+
+    def deplacement_for_coord(x, y, flow):
+        x0, y0 = x, y
+        for f in reversed(flow):
+            (vx, vy) = f(x0, y0)
+            x0 += vx
+            y0 += vy
+        return (x0 - x, y0 - y)
+
+    for (index, image) in enumerate(images):
+        image_boxes = boxes.getBoundingBoxesByImageName(image)
+        for box in image_boxes:
+            (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
+            (mx, my) = deplacement_for_coord(x, y, flows[:index+1])
+            box.moveBy(mx, my)
+            box._imageName = "No name"
+
+    return boxes
 
 def optical_flow_visualisation(txt_file):
     images = []
@@ -407,11 +441,12 @@ def convert_to_grayscale(image):
 def optical_flow(image_1, image_2, prev_opt_flow=None):
     first_image = convert_to_grayscale(image_1)
     second_image = convert_to_grayscale(image_2)
+    (img_h, img_w) = image_1.shape[:2]
 
     flag = cv.OPTFLOW_USE_INITIAL_FLOW
 
     if prev_opt_flow is None:
-        prev_opt_flow = np.zeros_like(first_image)
+        prev_opt_flow = np.zeros((img_h, img_w, 2), dtype=np.float32)
         flag = 0
 
     optical_flow = cv.calcOpticalFlowFarneback(
@@ -427,34 +462,6 @@ def optical_flow(image_1, image_2, prev_opt_flow=None):
         flags=flag)
 
     return optical_flow, image_2
-
-def mean_opt_flow(optical_flow, mask=None):
-        """
-        `mask` is a binary mask where locations where to compute optical_flow
-        ar marked as True.
-        """
-        dx = optical_flow[..., 0]
-        dy = optical_flow[..., 1]
-
-        if mask is not None:
-            dx = dx[mask == True]
-            dy = dy[mask == True]
-
-        return np.mean(dx), np.mean(dy)
-
-def median_opt_flow(optical_flow, mask=None):
-        """
-        `mask` is a binary mask where locations where to compute optical_flow
-        ar marked as True.
-        """
-        dx = optical_flow[..., 0]
-        dy = optical_flow[..., 1]
-
-        if mask is not None:
-            dx = dx[mask == True]
-            dy = dy[mask == True]
-
-        return np.median(dx), np.median(dy)
 
 def opt_flow_plane(txt_file):
     images = []
@@ -494,8 +501,9 @@ def opt_flow_plane(txt_file):
 
         dX, dY = opflow[..., 0], opflow[..., 1]
 
-        coeffs_X = fit_plane(X, Y, dX, mask)
-        coeffs_Y = fit_plane(X, Y, dY, mask)
+        # should be updated with Equation
+        coeffs_X = fit_plane(X, Y, dX, mask).coeffs
+        coeffs_Y = fit_plane(X, Y, dY, mask).coeffs
 
         c_x = coeffs_X[0] * (img_w / 2) + coeffs_X[1] * (img_h / 2) + coeffs_X[2]
         c_y = coeffs_Y[0] * (img_w / 2) + coeffs_Y[1] * (img_h / 2) + coeffs_Y[2]
@@ -539,54 +547,239 @@ def opt_flow_plane(txt_file):
     with open("planar_opt_flow.txt", "w") as f:
         f.write(opt_flows)
 
-def generate_opt_flow(txt_file, name="opt_flow.txt", masking_border=False, mask_egi=False):
-    images = []
-    with open(txt_file, "r") as f:
-        images = f.readlines()
-    images = [image.strip() for image in images]
+def get_border_mask(image_size):
+    mask = np.full(image_size, True)
 
-    past_image = cv.imread(images[0])
-    (img_h, img_w) = past_image.shape[:2]
+    (h, w) = image_size
+    xmin = int(w * 0.2)
+    xmax = int(w * 0.9)
+    ymin = int(h * 0.1)
+    ymax = int(h * 0.9)
 
-    base_mask = np.full(past_image.shape[:2], True)
+    mask[ymin:ymax:, xmin:xmax] = False
+    return ~mask
+
+def image_displacement(img1, img2, prev_opt_flow=None, masking_border=False, mask_egi=False):
+    mask = np.full(img1.shape[:2], True)
 
     if masking_border:
-        xmin = int(img_w * 0.2)
-        xmax = int(img_w * 0.9)
-        ymin = int(img_h * 0.1)
-        ymax = int(img_h * 0.9)
+        mask = get_border_mask(img1.shape[:2])
 
-        base_mask[ymin:ymax:, xmin:xmax] = False
-        base_mask = ~base_mask
+    if mask_egi:
+        kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
 
-    opt_flow = None
-    opt_flows = [(0, 0)]
+        egi = np.uint8(egi_mask(img1) * 255)
+        egi = cv.dilate(egi, kernel, iterations=5)
+        egi = egi.astype(np.bool)
 
-    for image in images[1:]:
-        current_image = cv.imread(image)
+        mask = mask & ~egi
 
-        if mask_egi:
-            # Egi and mask
-            kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
+    flow, _ = optical_flow(img1, img2, prev_opt_flow)
 
-            egi = np.uint8(egi_mask(past_image) * 255)
-            egi = cv.dilate(egi, kernel, iterations=5)
-            egi = egi.astype(np.bool)
+    return median_opt_flow(flow, mask), flow
 
-            mask = base_mask & ~egi
+class OpticalFlow:
+    def __init__(self, image_size, mask_border=False, mask_egi=False, use_prev_opt_flow=True):
+        self.mask_egi = mask_egi
+        self.image_size = image_size
+        self.previous_flow = np.zeros((*image_size, 2), dtype=np.float32) if use_prev_opt_flow else None
+        self.border_mask = self.get_border_mask(image_size) if mask_border else None
+        self.kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
+
+    def optical_flow(self, img1, img2):
+        first_image = convert_to_grayscale(img1)
+        second_image = convert_to_grayscale(img2)
+
+        flow = self.dense_optflow(img1, img2, self.previous_flow)
+        self.previous_flow = flow
+
+        return flow
+
+    def displacement(self, img1, img2):
+        flow = self.optical_flow(img1, img2)
+        mask = self.mask(img1, img2)
+        return self.median(flow, mask)
+
+    def displacement_plane_equation(self, img1, img2):
+        flow = self.optical_flow(img1, img2)
+
+        dx = flow[..., 0]
+        dy = flow[..., 1]
+
+        (x_grid, y_grid) = np.meshgrid(
+            np.arange(0, self.image_size[1]),
+            np.arange(0, self.image_size[0])
+        )
+
+        mask = self.mask(img1, img2)
+
+        eq_x = fit_plane(x_grid, y_grid, dx, mask)
+        eq_y = fit_plane(x_grid, y_grid, dy, mask)
+
+        return eq_x, eq_y
+
+    def mask(self, img1, img2):
+        if self.mask_egi:
+            egi1 = self.egi_mask(img1)
+            # egi2 = self.egi_mask(img2)
+            # egi = egi1 & egi2
+            egi = egi1
+
+            if self.border_mask is not None:
+                return self.border_mask & egi
+            else:
+                return egi
         else:
-            mask = base_mask
+            return self.border_mask
 
-        # Opt flow
-        opt_flow, tmp = optical_flow(past_image, current_image, opt_flow)
-        dx, dy = median_opt_flow(opt_flow, mask=mask)
-        opt_flows.append((dx, dy))
+    def egi_mask(self, img):
+        egi = np.uint8(egi_mask(img) * 255)
+        egi = cv.dilate(egi, self.kernel, iterations=5)
+        egi = egi.astype(np.bool)
+        return ~egi
 
-        past_image = tmp
+    @classmethod
+    def dense_optflow(cls, img1, img2, prev_flow=None):
+        first_image = convert_to_grayscale(img1)
+        second_image = convert_to_grayscale(img2)
+        flag = cv.OPTFLOW_USE_INITIAL_FLOW if prev_flow is not None else 0
 
-    with open(name, "w") as f:
-        for (dx, dy) in opt_flows:
-            f.write("{} {}\n".format(dx, dy))
+        return cv.calcOpticalFlowFarneback(
+            prev=first_image,
+            next=second_image,
+            flow=prev_flow,
+            pyr_scale=0.5,
+            levels=4,
+            winsize=8,
+            iterations=4,
+            poly_n=5,
+            poly_sigma=1.1,
+            flags=flag)
+
+    @classmethod
+    def get_border_mask(cls, image_size):
+        mask = np.full(image_size, True)
+
+        (h, w) = image_size
+        xmin = int(w * 0.2)
+        xmax = int(w * 0.9)
+        ymin = int(h * 0.1)
+        ymax = int(h * 0.9)
+
+        mask[ymin:ymax:, xmin:xmax] = False
+
+        return ~mask
+
+    @classmethod
+    def mean(cls, optical_flow, mask=None):
+        """
+        `mask` is a binary mask where locations where to compute optical_flow
+        ar marked as True.
+        """
+        dx = optical_flow[..., 0]
+        dy = optical_flow[..., 1]
+
+        if mask is not None:
+            dx = dx[mask == True]
+            dy = dy[mask == True]
+
+        return np.mean(dx), np.mean(dy)
+
+    @classmethod
+    def median(cls, optical_flow, mask=None):
+        """
+        `mask` is a binary mask where locations where to compute optical_flow
+        ar marked as True.
+        """
+        dx = optical_flow[..., 0]
+        dy = optical_flow[..., 1]
+
+        if mask is not None:
+            dx = dx[mask == True]
+            dy = dy[mask == True]
+
+        return np.median(dx), np.median(dy)
+
+    @classmethod
+    def generate(cls, txt_file, name="opt_flow.txt", masking_border=False, mask_egi=False):
+        images = []
+        with open(txt_file, "r") as f:
+            images = f.readlines()
+        images = [image.strip() for image in images]
+
+        past_image = cv.imread(images[0])
+
+        opt_flows = [(0, 0)]
+        ofCalc = OpticalFlow(past_image.shape[:2],
+            mask_border=masking_border, mask_egi=mask_egi)
+
+        for image in images[1:]:
+            current_image = cv.imread(image)
+
+            # Opt flow
+            displacement = ofCalc.displacement(current_image, past_image)
+            print(displacement)
+            opt_flows.append(displacement)
+
+            past_image = current_image
+
+        with open(name, "w") as f:
+            for (dx, dy) in opt_flows:
+                f.write("{} {}\n".format(dx, dy))
+
+    @classmethod
+    def generate_plane(cls, txt_file, name="opt_flow_plane.txt", mask_border=False, mask_egi=False):
+        images = read_image_txt_file(txt_file)
+        past_image = cv.imread(images[0])
+        of_calc = OpticalFlow(past_image.shape[:2], mask_border=mask_border, mask_egi=mask_egi)
+        data = "0, 0, 0, 0, 0, 0\n"
+
+        for image in images[1:]:
+            current_image = cv.imread(image)
+            (eq_x, eq_y) = of_calc.displacement_plane_equation(current_image, past_image)
+            (xx, xy, x0) = eq_x.coeffs
+            (yx, yy, y0) = eq_y.coeffs
+            line = f"{xx}, {xy}, {x0}, {yx}, {yy}, {y0}\n"
+            print(line)
+            data += line
+            past_image = current_image
+
+        with open(name, "w") as f:
+            f.write(data)
+
+    @classmethod
+    def read(cls, file):
+        flows = []
+        with open(file, "r") as f:
+            for line in f.readlines():
+                line = line.strip().split(" ")
+                dx, dy = float(line[0]), float(line[1])
+                flows.append(BivariateFunction(
+                    lambda x, y, ex=dx, ey=dy: (ex, ey)
+                ))
+        return flows
+
+    @classmethod
+    def read_planes(cls, file):
+        flows = []
+        with open(file, "r") as f:
+            data = f.readlines()
+            for line in data:
+                line = line.strip().split(",")
+                coeffs = [float(coeff) for coeff in line]
+                eq_x = Equation(coeffs[:3])
+                eq_y = Equation(coeffs[3:])
+                flows.append(BivariateFunction(lambda x, y, ex=eq_x, ey=eq_y: (ex(x, y), ey(x, y))))
+        return flows
+
+    @classmethod
+    def traverse_backward(cls, flows, x, y):
+        x0, y0 = x, y
+        for f in reversed(flows):
+            (vx, vy) = f(x0, y0)
+            x0 += vx
+            y0 += vy
+        return (x0 - x, y0 - y)
 
 def egi_mask(image, thresh=30):
     '''
@@ -1004,16 +1197,6 @@ def clip_box_to_size(box, size):
 
     return  (new_x, new_y, new_w, new_h)
 
-def read_optical_flow(file):
-    opt_flows = []
-
-    with open(file, "r") as f:
-        opt_flows = f.readlines()
-        opt_flows = [c.strip().split(" ") for c in opt_flows]
-        opt_flows = [[float(c[0]), float(c[1])] for c in opt_flows]
-
-    return opt_flows
-
 def read_image_txt_file(file):
     images = []
     with open(file, "r") as f:
@@ -1116,10 +1299,33 @@ def RMSE_opt_flow(txt_file):
     plt.title("Optical Flow Mask Comparison - Planar Opt Flow")
     plt.show()
 
+def another_optical_flow_test(txt_file,
+    name="opt_flow.txt", masking_border=False, mask_egi=False
+):
+    images = []
+    with open(txt_file, "r") as f:
+        images = f.readlines()
+    images = [image.strip() for image in images]
+
+    past_image = cv.imread(images[0])
+
+    optical_flow_fn = OpticalFlow(past_image.shape[:2],
+        mask_border=masking_border, mask_egi=mask_egi)
+
+    flows = []
+
+    for i, image in enumerate(images[1:]):
+        current_image = cv.imread(image)
+
+        # OF from current image to previous image
+        eq_x, eq_y = optical_flow_fn.displacement_plane_equation(current_image, past_image)
+        flows.append(BivariateFunction(eq_x, eq_y))
+
+        past_image = current_image
+
 def draw_tracked_confidence_ellipse(tracks_dict):
     save_dir = "save/aggr_tracking_ellispe/"
     create_dir(save_dir)
-
     for (image, tracks) in tracks_dict.items():
         img = cv.imread(image)
 
@@ -1142,29 +1348,60 @@ def draw_tracked_confidence_ellipse(tracks_dict):
         save_name = os.path.join(save_dir, os.path.basename(image))
         cv.imwrite(save_name, img)
 
+def get_perspective_dataset(path, save_dir=None):
+    images = files_with_extension(path, ".jpg")
+
+    if save_dir is None:
+        save_dir = "perspective_dataset/"
+    create_dir(save_dir)
+
+    transform = imtf.get_transformation((632, 632),
+        rx=imtf.radians(5))  # Y axis = rx
+        # ry=imtf.radians(0), dx=0, dz=0)
+
+    for image in images:
+        img = cv.imread(image)
+        warped = imtf.warp_perspective(img, transform)
+        save_name = os.path.join(save_dir, os.path.basename(image))
+        cv.imwrite(save_name, warped)
+
 if __name__ == "__main__":
-    colors = [(1, 0, 0), (0.5, 0, 0), (0.25, 0, 0)]
+    # get_perspective_dataset("/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2")
 
-    mu = [10, 100]
-    scales = [3, 5]
-    cov_mat = [
-        [0.9, -0.4],
-        [0.1, -0.6]
-    ]
+    another_optical_flow_test("data/haricot_debug_long_2.txt",
+        name="data/test_opt_flow.txt", masking_border=True, mask_egi=True)
 
-    (x, y) = get_correlated_dataset(100, cov_mat, mu, scales)
+    # img1 = cv.imread("/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2/im_03331.jpg")
+    # img2 = cv.imread("/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2/im_03332.jpg")
+    #
+    # of, _ = optical_flow(img1, img2)
+    # dx = of[..., 0]
+    # print(dx.shape)
+    # plt.imshow(dx)
+    # plt.show()
 
-    figure = plt.figure()
-    axis = plt.subplot(111)
-    axis.axis("equal")
-    for n in range(1, 4):
-        (ex, ey, w, h, angle) = confidence_ellipse(x, y, n_std=n)
-        print("x: {:.4}, y: {:.4}, w: {:.4}, h: {:.4}, angle: {:.4}".format(ex, ey, w, h, angle))
-        ellipse = Ellipse(xy=(ex, ey), width=w, height=h, angle=angle, color=colors[n-1])
-        ellipse.set_facecolor("none")
-        axis.add_artist(ellipse)
-    plt.scatter(x, y)
-    plt.show()
+    # colors = [(1, 0, 0), (0.5, 0, 0), (0.25, 0, 0)]
+    #
+    # mu = [10, 100]
+    # scales = [3, 5]
+    # cov_mat = [
+    #     [0.9, -0.4],
+    #     [0.1, -0.6]
+    # ]
+    #
+    # (x, y) = get_correlated_dataset(100, cov_mat, mu, scales)
+    #
+    # figure = plt.figure()
+    # axis = plt.subplot(111)
+    # axis.axis("equal")
+    # for n in range(1, 4):
+    #     (ex, ey, w, h, angle) = confidence_ellipse(x, y, n_std=n)
+    #     print("x: {:.4}, y: {:.4}, w: {:.4}, h: {:.4}, angle: {:.4}".format(ex, ey, w, h, angle))
+    #     ellipse = Ellipse(xy=(ex, ey), width=w, height=h, angle=angle, color=colors[n-1])
+    #     ellipse.set_facecolor("none")
+    #     axis.add_artist(ellipse)
+    # plt.scatter(x, y)
+    # plt.show()
 
     # txt_file = "data/haricot_debug_long_2.txt"
 
