@@ -97,6 +97,9 @@ def create_dir(directory):
         os.mkdir(directory)
 
 def image_size(image):
+    """
+    (width, height)
+    """
     return PIL.Image.open(image).size
 
 def dictGrouping(array, key):

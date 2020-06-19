@@ -58,7 +58,10 @@ class BoundingBoxes(MutableSequence):
         return BoundingBoxes([d for d in self if d.getImageName() == imageName])
 
     def getBoundingBoxByClass(self, classId):
-        return BoundingBoxes([bb for bb in self if bb.getClassId() == classId])
+        if isinstance(classId, list):
+            return BoundingBoxes([bb for bb in self if bb.getClassId() in classId])
+        else:
+            return BoundingBoxes([bb for bb in self if bb.getClassId() == classId])
 
     def getDetectionBoxesAsNPArray(self):
         import numpy as np
