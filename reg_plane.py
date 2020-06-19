@@ -3,6 +3,37 @@ import matplotlib.pyplot as plt
 from mpl_toolkits import mplot3d
 from sklearn.linear_model import LinearRegression
 
+class BivariateFunction:
+    def __init__(self, fn):
+        """
+        Callable object representing a function of 2 variables:
+        func: (x, y) -> (x2, y2)
+
+        Args:
+            - func: lamda or callable object
+        """
+        self.fn = fn
+
+    def __call__(self, x, y):
+        return self.fn(x, y)
+
+class Equation:
+    """
+    2D plane equation.
+    """
+    def __init__(self, coeffs):
+        """
+        Args:
+            - coeffs [array(float)]: Plane coeeficients for equation coeffs[0] * x + coeffs[1] * y + coeffs[2]
+        """
+        self.coeffs = coeffs
+
+    def __call__(self, x, y):
+        return self.coeffs[0] * x + self.coeffs[1] * y + self.coeffs[2]
+
+    def __str__(self):
+        return f"{self.coeffs[0]} * x + {self.coeffs[1]} * y + {self.coeffs[2]}"
+
 def fit_plane(X, Y, Z, mask=None):
     """
     Fits a plane to observed data corrupted with noise:
@@ -26,6 +57,7 @@ def fit_plane(X, Y, Z, mask=None):
         X = X[mask == True]
         Y = Y[mask == True]
         Z = Z[mask == True]
+
         T = np.stack((X, Y), axis=1)
         V = Z
     else:
@@ -35,7 +67,7 @@ def fit_plane(X, Y, Z, mask=None):
     reg = LinearRegression().fit(T, V)
     coeffs = [*reg.coef_, reg.intercept_]
 
-    return coeffs
+    return Equation(coeffs)
 
 def reg_score(y, f, mask=None):
     """
@@ -58,23 +90,23 @@ def reg_score(y, f, mask=None):
 
 if __name__ == "__main__":
     width, height = (100, 50)
-    a, b, c = 2, 3, 7
+    a, b, c = 0.002, 0.003, 25
 
     X, Y = np.meshgrid(np.arange(width), np.arange(height))
-    noise = 10 * np.random.randn(height, width)
+    noise = 0.01 * np.random.randn(height, width)
     Z = a*X + b*Y + c + noise
 
     mask = np.full_like(Z, False)  # Simulate missing data
     mask[::4, ::4] = True
 
     # Fit the data
-    coeffs = fit_plane(X, Y, Z, mask)
+    eq = fit_plane(X, Y, Z, mask)
 
     # Predicted Plane
-    H = coeffs[0] * X + coeffs[1] * Y + coeffs[2]
+    H = eq(X, Y)
 
-    print("Predicted Plane: Z = {:.4}*X + {:.4}*Y + {:.4}".format(*coeffs))
     print("Real Plane: Z = {}*X + {}*Y + {}".format(a, b, c))
+    print("Predicted Plane: Z = {:.4}*X + {:.4}*Y + {:.4}".format(*eq.coeffs))
     print("R²: {:.2%}".format(reg_score(Z, H, mask)))
 
     # Plot

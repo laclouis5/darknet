@@ -61,9 +61,9 @@ def plot_rec_prec_curve(data):
             plt.annotate("{:.2%}".format(best_f1), (best_rec, best_pre))
 
     # plt.annotate("{:.2%}".format(0.8042), (0.8085 + 0.005, 0.8000 + 0.005))  # Bean
-    plt.annotate("{:.2%}".format(0.7593), (0.6613 + 0.005, 0.8913 + 0.005))  # Maize
+    plt.annotate("{:.2%}".format(0.7500), (0.6532 + 0.005, 0.8804 + 0.005))  # Maize
     # plt.plot([0.8085], [0.8000], "rx", label="without aggregation")  # Bean
-    plt.plot([0.6613], [0.8913], "rx", label="without aggregation")  # Maize
+    plt.plot([0.6532], [0.8804], "rx", label="without aggregation")  # Maize
 
     percents = np.linspace(0, 1, 11)
     plt.xlabel("Recall")
