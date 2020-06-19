@@ -45,7 +45,7 @@ from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
 
-from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, mean_opt_flow, convert_to_grayscale, egi_mask, generate_opt_flow, Track, Tracker, associate_boxes_with_image, gts_in_unique_ref, optical_flow_visualisation, evaluate_aggr, read_optical_flow, read_image_txt_file, associate_tracks_with_image, draw_tracked_confidence_ellipse
+from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, convert_to_grayscale, egi_mask, Track, Tracker, associate_boxes_with_image, gts_in_unique_ref, optical_flow_visualisation, evaluate_aggr, read_image_txt_file, associate_tracks_with_image, draw_tracked_confidence_ellipse, OpticalFlow, BivariateFunction, Equation, move_gts_in_unique_ref
 
 from reg_plane import fit_plane, reg_score
 
@@ -688,46 +688,25 @@ def drawConstellation(txt_file, nb_samples=10, offset=0):
     plt.ylim((height, 0))
     plt.show()
 
-def drawConstellationFlat(txt_file, folder, opt_flow):
-    # Opt flow stuff reading
-    opt_flows = []
-    with open(opt_flow, "r") as f:
-        opt_flows = f.readlines()
-        opt_flows = [c.strip().split(" ") for c in opt_flows]
-        opt_flows = [(float(c[0]), float(c[1])) for c in opt_flows]
-
-    # Parse gts in folder
-    gts = Parser.parse_xml_folder(folder)
-
-    # Parse images in chronological order
-    images = []
-    with open(txt_file, "r") as f:
-        images = [c.strip() for c in f.readlines()]
+def drawConstellationFlat(txt_file, folder, opt_flow, label):
+    # flows = OpticalFlow.read(opt_flow)  # Std way
+    flows = OpticalFlow.read_planes("data/optflow_haricot_seq_plane.txt")  # Plane way
+    boxes = Parser.parse_xml_folder(folder, classes=[label])
+    images = read_image_txt_file(txt_file)
 
     # Init stuff and main loop
-    out_boxes = BoundingBoxes()
-    dx, dy = 0, 0
-    for i, image in enumerate(images):
-        opt_flow = opt_flows[i]
-        dx += opt_flow[0]
-        dy += opt_flow[1]
-        print(dx, dy)
-        boxes = gts.getBoundingBoxesByImageName(image)
-        boxes.moveBy(dx=-1.15 * dx, dy=-dy)
-        out_boxes += boxes
-
-    # out_boxes.mapLabels({0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"})
-    boxes_by_class = {label: out_boxes.getBoundingBoxByClass(label) for label in out_boxes.getClasses()}
+    for (i, image) in enumerate(images):
+        image_boxes = boxes.getBoundingBoxesByImageName(image)
+        for box in image_boxes:
+            (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
+            (dx, dy) = OpticalFlow.traverse_backward(flows[:i+1], x, y)
+            box.moveBy(dx, dy)
 
     # Plot stuff
     plt.figure()
-    colormap = ["red", "green", "blue", "orange", "purple", "pink"]
-    for i, (label, boxes) in enumerate(boxes_by_class.items()):
-        coords = [box.getAbsoluteBoundingBox(format=BBFormat.XYC) for box in boxes_by_class[label]]
-        coords = [(coord[0], coord[1]) for coord in coords]
-        plt.scatter([coord[0] for coord in coords], [coord[1] for coord in coords], c=colormap[i], marker=".")
-
-    plt.legend(boxes_by_class.keys())
+    for box in boxes:
+        (x, y, _, _) = box.getAbsoluteBoundingBox(format=BBFormat.XYC)
+        plt.scatter(x, y, c="red", marker=".")
     plt.title("Constellation")
     plt.xlabel("X position (pixels)")
     plt.ylabel("Y position (pixels)")
@@ -1331,13 +1310,18 @@ def detect_and_track_aggr_2(boxes, txt_file, optical_flow,
     Tracking by aggregation without recomputing the detections with
     Darknet.
     """
-    opt_flows = read_optical_flow(optical_flow)
     images = read_image_txt_file(txt_file)
+
+    opt_flows = OpticalFlow.read(optical_flow)
+    opt_flows = [BivariateFunction(  # ! Save flow as local var!
+        fn1=lambda x, y, fl=flow[0]: fl,
+        fn2=lambda x, y, fl=flow[1]: fl) for flow in opt_flows]
+    # opt_flows = OpticalFlow.read_planes("data/test_planes.txt")
 
     # Tracker
     tracker = Tracker(min_confidence=conf_thresh, min_points=min_points, dist_thresh=dist_thresh)
 
-    for i, image in enumerate(images):  # [:300]
+    for i, image in enumerate(images):
         image_boxes = boxes.getBoundingBoxesByImageName(image)
         tracker.update(image_boxes, opt_flows[i])
 
@@ -1345,7 +1329,7 @@ def detect_and_track_aggr_2(boxes, txt_file, optical_flow,
 
 def detect_and_track_aggr_visu(network, txt_file, optical_flow, label, conf_thresh=0.25, min_points=8, dist_thresh=7.5/100):
     # Opt flow stuff reading
-    opt_flows = read_optical_flow(optical_flow)
+    opt_flows = OpticalFlow.read(optical_flow)
     acc_flow = np.cumsum(opt_flows, axis=0)
     images = read_image_txt_file(txt_file)
     (cfg, model, obj) = network.get_cfg_weight_meta()
@@ -1400,7 +1384,7 @@ def point_cloud_visu(yolo, txt_file, opt_flow, label, conf_thresh=0.25):
     # Stuff reading
     (cfg, weights, obj) = yolo.get_cfg_weight_meta()
     images = read_image_txt_file(txt_file)
-    opt_flows = read_optical_flow(opt_flow)
+    opt_flows = OpticalFlow.read(opt_flow)
     acc_flow = np.cumsum(opt_flows, axis=0)
     save_dir = "save/point_cloud_visu/"
     create_dir(save_dir)
@@ -1448,14 +1432,19 @@ if __name__ == "__main__":
     maize_long_folder = "/media/deepwater/DATA/Shared/Louis/datasets/mais_debug_montoldre_2"
     maize_opt_flow = "data/opt_flow_mais.txt"
 
+    bean_seq = "data/haricot_sequential.txt"
+    bean_seq_folder = "/media/deepwater/DATA/Shared/Louis/datasets/haricot_montoldre_sequential"
+    bean_seq_flow = "data/optflow_haricot_seq.txt"
+
     maize_demo = "data/demo_mais.txt"
     maize_demo_folder = "data/demo_mais"
     maize_demo_opt_flow = "data/opt_flow_demo_mais.txt"
 
+    model_path = "results/yolov3-tiny_3l_14"  # BDD 4.2
     # model_path = "results/yolov4_1"  # BDD 4.2
     # model_path = "results/yolo_v3_pan_csr50_optimal_2"  # BDD 4.2
     # model_path = "results/yolo_v3_pan_csr50_optimal_3"  # BDD 6.0
-    model_path = "results/yolo_v3_tiny_pan3_7/" # BDD  # BDD 4.2
+    # model_path = "results/yolo_v3_tiny_pan3_7/" # BDD  # BDD 4.2
     # model_path = "results/yolo_v3_tiny_pan3_8/" # BDD  # BDD 6.0
     yolo = YoloModelPath(model_path)
 
@@ -1484,31 +1473,55 @@ if __name__ == "__main__":
     # detect_and_track_aggr_visu(yolo, bean_long, bean_opt_flow, "stem_bean", conf_thresh=0.25)
     # point_cloud_visu(yolo, bean_long, bean_opt_flow, "stem_bean")
     # optical_flow_visualisation(bean_long)
-    # generate_opt_flow(bean_long, name="data/opt_flow_haricot_cal.txt")
+    # OpticalFlow.generate(bean_seq,
+    #     name="data/test.txt", masking_border=True, mask_egi=True)
+    # OpticalFlow.generate_plane(bean_long,
+    #     name="data/opt_flow_haricot_plane.txt", mask_border=True, mask_egi=True)
+    # planes = OpticalFlow.read_planes("data/opt_flow_haricot_plane.txt")
+    # flow = OpticalFlow.traverse_backward(planes, 0, 0)
+    # print(flow)
+    # print(planes)
+    # drawConstellationFlat(bean_seq, bean_seq_folder, bean_seq_flow, "landmark")
+    # drawConstellationFlat(bean_long, bean_long_folder, bean_opt_flow, en_to_fr["stem_bean"])
+    # drawConstellationFlat(maize_long, maize_long_folder, maize_opt_flow, en_to_fr["stem_maize"])
 
-    boxes = Parser.parse_yolo_det_folder("save/stem_bean_temp/",
-        img_folder=bean_long_folder,
-        bbFormat=BBFormat.XYX2Y2,
-        typeCoordinates=CoordinatesType.Absolute,
-        classes=["stem_bean"])
-    # tracker = detect_and_track_aggr_2(boxes, maize_long, maize_opt_flow,
-        # min_points=7, dist_thresh=9/100)
-    tracker = detect_and_track_aggr_2(boxes, bean_long, bean_opt_flow,
-        min_points=11, dist_thresh=5/100)
-    tracks = associate_tracks_with_image(bean_long, bean_opt_flow, tracker)
-    gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
-    gts.mapLabels(fr_to_en)
-    tracks = {k: v for (k, v) in tracks.items() if k in gts.getNames()}
-    draw_tracked_confidence_ellipse(tracks)
-
-    # boxes = Parser.parse_yolo_det_folder("save/stem_maize_temp/",
-    #     img_folder=maize_long_folder,
+    # FILTERING EVALUATION
+    # gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
+    # gts.mapLabels(fr_to_en)
+    # boxes = Parser.parse_yolo_det_folder("save/stem_bean_temp/",
+    #     img_folder=bean_long_folder,
     #     bbFormat=BBFormat.XYX2Y2,
     #     typeCoordinates=CoordinatesType.Absolute,
-    #     classes=["stem_maize"])
-    # gts = Parser.parse_xml_folder(maize_long_folder, [en_to_fr["stem_maize"]])
-    # gts.mapLabels(fr_to_en)
+    #     classes=["stem_bean"])
+    # # boxes = performDetectOnFolder(yolo, bean_long_folder)
+    # # boxes = boxes.getBoundingBoxByClass("stem_bean")
+    # tracker = detect_and_track_aggr_2(boxes, bean_long, bean_opt_flow,
+    #     min_points=15, dist_thresh=7.5/100)  # Bean
+    # # tracks = associate_tracks_with_image(bean_long, bean_opt_flow, tracker)
+    # # tracks = {k: v for (k, v) in tracks.items() if k in gts.getNames()}
+    # # draw_tracked_confidence_ellipse(tracks)
+    # dets = tracker.get_filtered_boxes()
+    # dets = associate_boxes_with_image(bean_long, bean_opt_flow, dets)
+    # dets = BoundingBoxes([det for det in dets if det.getImageName() in gts.getNames()])
+    # print(len(dets))
+    # Evaluator().printAPsByClass((dets + gts),
+    #     thresh=5/100, method=EvaluationMethod.Distance)
+    # # dets.drawAllCenters(save_dir="save/aggr_tracking/")
 
+    # WITHOUT FILTERING EVALUATION
+    # gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
+    # gts.mapLabels(fr_to_en)
+    # boxes = Parser.parse_yolo_det_folder("save/stem_bean_temp/",
+    #     img_folder=bean_long_folder,
+    #     bbFormat=BBFormat.XYX2Y2,
+    #     typeCoordinates=CoordinatesType.Absolute,
+    #     classes=["bean"])
+    # boxes.mapLabels({"bean": "stem_bean"})
+    # dets = BoundingBoxes([det for det in boxes if det.getImageName() in gts.getNames()])
+    # Evaluator().printAPsByClass((dets + gts),
+    #     thresh=5/100, method=EvaluationMethod.Distance)
+
+    # GRID SEARCH TEST
     # out = []
     # for min_dist in range(1, 21):
     #     min_dist /= 100
@@ -1531,9 +1544,6 @@ if __name__ == "__main__":
     #
     # with open("save/aggr_grid_search_maize.csv", "w") as f:
     #     f.write(out)
-
-    # Evaluator().printAPsByClass((dets + gts), thresh=5/100, method=EvaluationMethod.Distance)
-    # dets.drawAllCenters(save_dir="save/aggr_tracking/")
 
     # # boxes_std = performDetectOnFolder(yolo, maize_long_folder, conf_thresh=0.25)
     # # boxes_std = BoundingBoxes([box for box in boxes_std if box.getImageName() in gts.getNames() and box.getClassId() == "stem_maize"])
@@ -1626,12 +1636,14 @@ if __name__ == "__main__":
     # Evaluator().printAPsByClass(gts + filtered_dets, 3.7 / 100, EvaluationMethod.Distance)
     # filtered_dets.drawAll(save_dir="save/bean_debug_long_tracked_KF_aggr_1/")
 
-    # # COMPUTE MAP
-    # gts = Parser.parse_yolo_gt_folder(val_path)
-    # gts.mapLabels(number_to_label)
-    # dets = performDetectOnFolder(yolo, val_path, conf_thresh=0.5/100)
-    # Evaluator().printAPs(gts + dets)
-    # Evaluator().printAPsByClass(gts + dets)
+    # COMPUTE MAP
+    gts = Parser.parse_yolo_gt_folder(val_path)
+    gts.mapLabels(number_to_label)
+    gts = gts.getBoundingBoxByClass(["maize", "bean", "stem_maize", "stem_bean"])
+    dets = performDetectOnFolder(yolo, val_path, conf_thresh=0.5/100)
+    dets = dets.getBoundingBoxByClass(["maize", "bean", "stem_maize", "stem_bean"])
+    Evaluator().printAPs(gts + dets)
+    Evaluator().printAPsByClass(gts + dets)
 
     # generate_opt_flow("data/haricot_debug_long_2.txt", name="data/opt_flow_last.txt")
     # drawConstellation(maize_demo, nb_samples=100, offset=0)
