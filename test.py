@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from joblib import Parallel, delayed
 
 from my_library import egi_mask
+import image_transform as imtf
 
 def weak_calibration(img_path, value=5):
     image = cv.imread(img_path)
@@ -155,7 +156,7 @@ def estimate_homographies(image_list_file):
         H = np.matmul(H, h)  # Accumulate transforms
 
         img1 = img2
-        img3 = cv.warpPerspective(img2, H,(img_w, img_h))
+        img3 = cv.warpPerspective(img2, H, (img_w, img_h))
 
         # cv.imwrite("save/homography/{}".format(os.path.basename(image)), img3)
         plt.imshow(img3)
