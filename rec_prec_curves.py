@@ -45,7 +45,7 @@ def add_info(data, gts):
 def split_by_dist(data, nb_splits):
     return np.vsplit(data, nb_splits)
 
-def plot_rec_prec_curve(data):
+def plot_rec_prec_curve(data, label):
     plt.figure()
     for i, d in enumerate(data):
         dist = d[0, 1]
@@ -56,14 +56,20 @@ def plot_rec_prec_curve(data):
 
         plt.plot(recall, precision, label="maxDist: {:.0%}".format(dist))
 
-        # if i == 1:  # Bean
-        if i == 2:  # Maize
+        best_curve_index = 3 if label == "maize" else 2
+        if i == best_curve_index:
             plt.annotate("{:.2%}".format(best_f1), (best_rec, best_pre))
 
-    # plt.annotate("{:.2%}".format(0.8042), (0.8085 + 0.005, 0.8000 + 0.005))  # Bean
-    plt.annotate("{:.2%}".format(0.7500), (0.6532 + 0.005, 0.8804 + 0.005))  # Maize
-    # plt.plot([0.8085], [0.8000], "rx", label="without aggregation")  # Bean
-    plt.plot([0.6532], [0.8804], "rx", label="without aggregation")  # Maize
+    # BEAN
+    if label == "bean":
+        # rec, prec = 0.7979, 0.9146
+        rec, prec = 0.7766, 0.9241
+    else:
+        # rec, prec = 0.8065, 0.8475
+        rec, prec = 0.7661, 0.8716
+    f1 = f1_score(rec, prec)
+    plt.annotate("{:.2%}".format(f1), (rec + 0.005, prec + 0.005))
+    plt.plot([rec], [prec], "rx", label="without aggregation")
 
     percents = np.linspace(0, 1, 11)
     plt.xlabel("Recall")
@@ -72,8 +78,8 @@ def plot_rec_prec_curve(data):
     plt.yticks(percents, ["{:.0%}".format(p) for p in percents])
     plt.legend(loc="lower left")
     plt.title("Precision-recall curve as a function of $minDets$ and $maxDist$")
-    plt.xlim([0.6, 1])  # 0.4
-    plt.ylim([0.6, 1])  # 0.6
+    plt.xlim([0.4, 1])  # 0.4
+    plt.ylim([0.5, 1])  # 0.6
     plt.show()
 
 def plot_f1_curve(data):
@@ -95,12 +101,12 @@ def plot_f1_curve(data):
     plt.show()
 
 def main():
-    file = "aggr_grid_search_maize.csv"
+    label = "maize"
+    file = f"save/aggr_grid_search_{label}_2.csv"
     data = read_csv_file(file)
-    data = add_info(data, 124) # 94  / 124
-    data_by_dist = split_by_dist(data, 20)
-
-    plot_rec_prec_curve(data_by_dist[2::3])
+    data = add_info(data, 94 if label == "bean" else 124)
+    data_by_dist = split_by_dist(data, 6)
+    plot_rec_prec_curve(data_by_dist, label)
 
     return 0
 
