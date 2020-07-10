@@ -89,24 +89,24 @@ class Tracker:
         # print("OF: (x: {:.6}, y: {:.6})".format(self.acc_flow[0], self.acc_flow[1]))
 
         tracked_boxes = self.get_all_boxes()
+        moved_detections = BoundingBoxes()
 
         for det in detections:
             (x, y, _, _) = det.getAbsoluteBoundingBox(BBFormat.XYC)
-            (mx, my) = self.deplacement_for_coord(x, y)
-            det.moveBy(mx, my)
-        # detections = detections.movedBy(-self.acc_flow[0], -self.acc_flow[1])
+            (mx, my) = OpticalFlow.traverse_backward(self.optical_flows, x, y)
+            moved_detections.append(det.movedBy(mx, my))
 
-        # matches, unmatched_dets, unmatched_tracks = self.assignment_match_indices(detections, tracked_boxes)
-        matches, unmatched_dets, unmatched_tracks = self.coco_assignement(detections, tracked_boxes)
+        # matches, unmatched_dets, unmatched_tracks = self.assignment_match_indices(moved_detections, tracked_boxes)
+        matches, unmatched_dets, unmatched_tracks = self.coco_assignement(moved_detections, tracked_boxes)
 
         for (det_idx, trk_idk) in matches:
-            self.tracks[trk_idk].append(detections[det_idx])
+            self.tracks[trk_idk].append(moved_detections[det_idx])
 
         print("unmatched dets: {}".format(unmatched_dets))
         print("unmatched_tracks: {}".format(unmatched_tracks))
 
         for det_idx in unmatched_dets:
-            new_track = Track(history=[detections[det_idx]])
+            new_track = Track(history=[moved_detections[det_idx]])
             self.tracks.append(new_track)
 
     def coco_assignement(self, detections, tracks):
@@ -188,22 +188,27 @@ class Tracker:
 
         return matches, unmatched_dets, unmatched_tracks
 
-    def deplacement_for_coord(self, x, y):
-        x0, y0 = x, y
-        for f in reversed(self.optical_flows):
-            (vx, vy) = f(x0, y0)
-            x0 += vx
-            y0 += vy
-        return (x0 - x, y0 - y)
-
     def get_all_boxes(self):
         return [track.barycenter_box() for track in self.tracks]
 
     def get_filtered_boxes(self):
-        return BoundingBoxes([track.barycenter_box() for track in self.tracks if track.mean_confidence() > self.min_confidence and len(track) > self.min_points])
+        filtered_boxes = [track.barycenter_box() for track in self.tracks
+            if track.mean_confidence() > self.min_confidence
+            and len(track) > self.min_points
+        ]
+        return BoundingBoxes(filtered_boxes)
+
+    def get_mahal_filtered_boxes(self):
+        return BoundingBoxes([track.robust_barycenter() for track in self.tracks
+            if track.mean_confidence() > self.min_confidence
+            and len(track) > self.min_points
+        ])
 
     def get_filtered_tracks(self):
-        return [track for track in self.tracks if track.mean_confidence() > self.min_confidence and len(track) > self.min_points]
+        return [track for track in self.tracks
+            if track.mean_confidence() > self.min_confidence
+            and len(track) > self.min_points
+        ]
 
     def print_stats_for_tracks(self, tracks=None):
         if tracks is None:
@@ -223,7 +228,7 @@ class Track(MutableSequence):
         self.track_id = Track.track_id
 
         if history == None:
-            self.history = []
+            self.history = BoundingBoxes()
         else:
             self.history = history
 
@@ -251,7 +256,7 @@ class Track(MutableSequence):
     def barycenter_box(self):
         assert len(self.history) > 0, "Track is empty, cannot compute barycenter"
 
-        boxes = np.array([box.getAbsoluteBoundingBox(format=BBFormat.XYC) for box in self.history])
+        boxes = np.array([box.getAbsoluteBoundingBox(BBFormat.XYC) for box in self.history])
         box = boxes.mean(axis=0)
 
         ref_box = self.history[0]
@@ -260,6 +265,44 @@ class Track(MutableSequence):
             imageName="No name",
             classId=ref_box.getClassId(),
             x=box[0], y=box[1], w=box[2], h=box[3],
+            typeCoordinates=ref_box.getCoordinatesType(),
+            imgSize=ref_box.getImageSize(),
+            bbType=ref_box.getBBType(),
+            classConfidence=self.mean_confidence(),
+            format=BBFormat.XYC)
+
+    def robust_barycenter(self, to_keep=0.8):
+        """
+        Computes the robust barycenter after removing outliers in the sense of mahalanobis distance.
+        """
+
+        if len(self.history) < 3:
+            return self.barycenter_box()
+
+        to_keep = int(to_keep * len(self.history))
+        boxes = np.array([box.getAbsoluteBoundingBox(BBFormat.XYC) for box in self.history])
+        coordinates = boxes[:, :2]
+        print(coordinates)
+        barycenter = coordinates.mean(axis=0)
+        cov = np.cov(coordinates.transpose())
+        inv_cov = np.linalg.inv(cov)
+        squared_mahal_dists = np.matmul(
+            np.matmul(coordinates - barycenter, inv_cov),
+            (coordinates - barycenter).transpose()
+        )
+        squared_mahal_dists = np.diagonal(squared_mahal_dists)
+        sorted_dist_indices = np.argsort(squared_mahal_dists)
+        filtered_indices = sorted_dist_indices[:to_keep]
+        filtered_boxes = boxes[filtered_indices]
+        filtered_box = filtered_boxes.mean(axis=0)
+
+        print(barycenter - filtered_box[:2])
+
+        ref_box = self.history[0]
+        return BoundingBox(
+            imageName="No name",
+            classId=ref_box.getClassId(),
+            x=filtered_box[0], y=filtered_box[1], w=filtered_box[2], h=filtered_box[3],
             typeCoordinates=ref_box.getCoordinatesType(),
             imgSize=ref_box.getImageSize(),
             bbType=ref_box.getBBType(),
@@ -322,23 +365,22 @@ def associate_tracks_with_image(txt_file, optical_flow, tracker):
     images = read_image_txt_file(txt_file)
     optical_flows = OpticalFlow.read(optical_flow)
     (img_width, img_height) = image_size(images[0])
-    (xmin, ymin, xmax, ymax) = (0, 0, img_width, img_height)
     output = defaultdict(list)
 
     tracks = tracker.get_filtered_tracks()
     bary_boxes = tracker.get_filtered_boxes()
 
     for (i, image) in enumerate(images):
-        (dx, dy) = optical_flows[i]
+        (dx, dy) = OpticalFlow.traverse_backward(optical_flows[:i+1], 0, 0)
 
-        xmin -= dx
-        ymin -= dy
-        xmax -= dx
-        ymax -= dy
+        xmin = dx
+        ymin = dy
+        xmax = dx + img_width
+        ymax = dy + img_height
 
-        for (j, box) in enumerate(bary_boxes):
-            if box.centerIsIn([xmin, ymin, xmax, ymax]):
-                track = tracks[j].movedBy(-xmin, -ymin)
+        for track in tracks:
+            if track.barycenter_box().centerIsIn([xmin, ymin, xmax, ymax]):
+                track = track.movedBy(-xmin, -ymin)
                 output[image].append(track)
 
     return output
@@ -347,15 +389,14 @@ def associate_boxes_with_image(txt_file, optical_flow, boxes):
     images = read_image_txt_file(txt_file)
     opt_flows = OpticalFlow.read(optical_flow)
     (img_width, img_height) = image_size(images[0])
-    xmin, ymin, xmax, ymax = 0, 0, img_width, img_height
     out_boxes = BoundingBoxes()
 
     for i, image in enumerate(images):
-        (dx, dy) = opt_flows[i]
-        xmin += dx
-        ymin += dy
-        xmax += dx
-        ymax += dy
+        (dx, dy) = OpticalFlow.traverse_backward(opt_flows[:i+1], 0, 0)  # +1 !!!
+        xmin = dx
+        ymin = dy
+        xmax = img_width + dx
+        ymax = img_height + dy
 
         image_boxes = boxes.boxes_in([xmin, ymin, xmax, ymax])
         image_boxes = image_boxes.movedBy(-xmin, -ymin)
@@ -634,7 +675,7 @@ class OpticalFlow:
 
     def egi_mask(self, img):
         egi = np.uint8(egi_mask(img) * 255)
-        egi = cv.dilate(egi, self.kernel, iterations=5)
+        egi = cv.dilate(egi, self.kernel, iterations=2)
         egi = egi.astype(np.bool)
         return ~egi
 
@@ -702,30 +743,22 @@ class OpticalFlow:
 
     @classmethod
     def generate(cls, txt_file, name="opt_flow.txt", masking_border=False, mask_egi=False):
-        images = []
-        with open(txt_file, "r") as f:
-            images = f.readlines()
-        images = [image.strip() for image in images]
-
+        images = read_image_txt_file(txt_file)
         past_image = cv.imread(images[0])
-
-        opt_flows = [(0, 0)]
+        data = "0.000000, 0.000000\n"
         ofCalc = OpticalFlow(past_image.shape[:2],
             mask_border=masking_border, mask_egi=mask_egi)
 
         for image in images[1:]:
             current_image = cv.imread(image)
-
-            # Opt flow
-            displacement = ofCalc.displacement(current_image, past_image)
-            print(displacement)
-            opt_flows.append(displacement)
-
+            dx, dy = ofCalc.displacement(current_image, past_image)
+            line = f"{dx}, {dy}\n"
+            print(line)
+            data += line
             past_image = current_image
 
         with open(name, "w") as f:
-            for (dx, dy) in opt_flows:
-                f.write("{} {}\n".format(dx, dy))
+            f.write(data)
 
     @classmethod
     def generate_plane(cls, txt_file, name="opt_flow_plane.txt", mask_border=False, mask_egi=False):
@@ -752,7 +785,7 @@ class OpticalFlow:
         flows = []
         with open(file, "r") as f:
             for line in f.readlines():
-                line = line.strip().split(" ")
+                line = line.strip().split(",")
                 dx, dy = float(line[0]), float(line[1])
                 flows.append(BivariateFunction(
                     lambda x, y, ex=dx, ey=dy: (ex, ey)
@@ -781,21 +814,20 @@ class OpticalFlow:
             y0 += vy
         return (x0 - x, y0 - y)
 
-def egi_mask(image, thresh=30):
+def egi_mask(image, thresh=35):
     '''
     Takes as input a numpy array describing an image and return a
     binary mask thresholded over the Excess Green Index.
     '''
     img_h, img_w = image.shape[:2]
-    small_area = int(0.25 / 100 * img_w * img_h)
+    small_area = int(0.1 / 100 * img_w * img_h)
 
     image_np  = np.array(image).astype(np.float)
     image_egi = np.sum(np.array([-1, 2, -1]) * image_np, axis=2)
-    image_gf  = filters.gaussian(image_egi, sigma=1, mode='reflect')
-    image_bin = image_gf > thresh
-    image_out = morphology.remove_small_objects(image_bin, small_area)
+    image_gf  = filters.gaussian(image_egi, sigma=1, mode="reflect")
+    image_out = image_gf > thresh
+    image_out = morphology.remove_small_objects(image_out, small_area)
     image_out = morphology.remove_small_holes(image_out, small_area)
-
     return image_out
 
 def cv_egi_mask(image, thresh=40):
@@ -1368,8 +1400,16 @@ def get_perspective_dataset(path, save_dir=None):
 if __name__ == "__main__":
     # get_perspective_dataset("/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2")
 
-    another_optical_flow_test("data/haricot_debug_long_2.txt",
-        name="data/test_opt_flow.txt", masking_border=True, mask_egi=True)
+    images = read_image_txt_file("data/haricot_sequential.txt")
+    create_dir("tmp/")
+    for image in images:
+        img = cv.imread(image)
+        img = egi_mask(img).astype(np.uint8) * 255
+        cv.imwrite(f"tmp/{os.path.basename(image)}", img)
+
+    # another_optical_flow_test("data/haricot_debug_long_2.txt",
+    #     name="data/test_opt_flow.txt", masking_border=True, mask_egi=True)
+
 
     # img1 = cv.imread("/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2/im_03331.jpg")
     # img2 = cv.imread("/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2/im_03332.jpg")
