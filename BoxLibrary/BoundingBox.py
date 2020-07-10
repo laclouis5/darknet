@@ -323,6 +323,7 @@ class BoundingBox:
         return boxA[0] < boxB[2] and boxB[0] < boxA[2] and boxA[3] > boxB[1]  and boxB[3] > boxA[1]
 
     def distance(self, other):
+        # Change this with format=XYC
         """
         Returns the distance from the center of this BoundingBox to the center of another BoundingBox (Euclidian distance).
 
