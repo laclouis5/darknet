@@ -21,10 +21,10 @@ from scipy.optimize import linear_sum_assignment
 from scipy import stats
 from collections.abc import MutableSequence
 
-from reg_plane import fit_plane, reg_score, Equation, BivariateFunction
+from reg_plane import fit_plane, reg_score, BivariateFunction, Equation
 import image_transform as imtf
 
-def confidence_ellipse(x, y, n_std=2):
+def confidence_ellipse(x, y, n_std=1):
     """
     Returns the confidence ellipse for 2 correlated distributions up
     to some confidence n * sigma.
@@ -72,7 +72,7 @@ def get_correlated_dataset(n, dependency, mu, scale):
 class Tracker:
     # Can add: if box touches image border remove it
     # Can change distance threshold to be adatative
-    def __init__(self, min_confidence=0.25, min_points=10, dist_thresh=7.5/100):
+    def __init__(self, min_confidence, min_points, dist_thresh):
         self.min_points = min_points
         self.min_confidence = min_confidence
         self.dist_thresh = dist_thresh
@@ -88,6 +88,7 @@ class Tracker:
         print(f"Len dets: {len(detections)}, Len tracks: {len(self.tracks)}")
         # print("OF: (x: {:.6}, y: {:.6})".format(self.acc_flow[0], self.acc_flow[1]))
 
+        # Only get tracks that are in the current window
         tracked_boxes = self.get_all_boxes()
         moved_detections = BoundingBoxes()
 
@@ -407,10 +408,30 @@ def associate_boxes_with_image(txt_file, optical_flow, boxes):
 
     return out_boxes
 
+def box_association(boxes, images, opt_flows):
+    (img_width, img_height) = image_size(images[0])
+    out_boxes = BoundingBoxes()
+
+    for i, image in enumerate(images):
+        (dx, dy) = OpticalFlow.traverse_backward(opt_flows[:i+1], 0, 0)  # +1 !!!
+        xmin = dx
+        ymin = dy
+        xmax = img_width + dx
+        ymax = img_height + dy
+
+        image_boxes = boxes.boxes_in([xmin, ymin, xmax, ymax])
+        image_boxes = image_boxes.movedBy(-xmin, -ymin)
+
+        for box in image_boxes:
+            (x, y, w, h) = box.getAbsoluteBoundingBox()
+            out_boxes.append(BoundingBox(imageName=image, classId=box.getClassId(), x=x, y=y, w=w, h=h, imgSize=box.getImageSize(), bbType=BBType.Detected, classConfidence=box.getConfidence()))
+
+    return out_boxes
+
 def move_gts_in_unique_ref(boxes, txt_file, opt_flow_file):
     images = read_image_txt_file(txt_file)
     flows = OpticalFlow.read(opt_flow_file)
-    flows = [BivariateFunction(
+    flows = [Function(
         fn1=lambda x, y, fl=flow[0]: fl,
         fn2=lambda x, y, fl=flow[1]: fl) for flow in flows
     ]
@@ -620,16 +641,19 @@ def image_displacement(img1, img2, prev_opt_flow=None, masking_border=False, mas
     return median_opt_flow(flow, mask), flow
 
 class OpticalFlow:
-    def __init__(self, image_size, mask_border=False, mask_egi=False, use_prev_opt_flow=True):
+    def __init__(self, mask_border=False, mask_egi=False):
         self.mask_egi = mask_egi
-        self.image_size = image_size
-        self.previous_flow = np.zeros((*image_size, 2), dtype=np.float32) if use_prev_opt_flow else None
-        self.border_mask = self.get_border_mask(image_size) if mask_border else None
+        self.mask_border = mask_border
+        self.previous_flow = None
         self.kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
 
     def optical_flow(self, img1, img2):
         first_image = convert_to_grayscale(img1)
         second_image = convert_to_grayscale(img2)
+
+        if self.previous_flow is None:
+            image_size = first_image.shape[:2]
+            self.previous_flow = np.zeros((*image_size, 2), dtype=np.float32)
 
         flow = self.dense_optflow(img1, img2, self.previous_flow)
         self.previous_flow = flow
@@ -641,15 +665,20 @@ class OpticalFlow:
         mask = self.mask(img1, img2)
         return self.median(flow, mask)
 
+    def displacement_eq(self, img1, img2):
+        (x, y) = self.displacement(img1, img2)
+        return BivariateFunction(lambda x, y, ex=x, ey=y: (ex, ey))
+
     def displacement_plane_equation(self, img1, img2):
+        image_size = img1.shape[:2]
         flow = self.optical_flow(img1, img2)
 
         dx = flow[..., 0]
         dy = flow[..., 1]
 
         (x_grid, y_grid) = np.meshgrid(
-            np.arange(0, self.image_size[1]),
-            np.arange(0, self.image_size[0])
+            np.arange(0, image_size[1]),
+            np.arange(0, image_size[0])
         )
 
         mask = self.mask(img1, img2)
@@ -662,16 +691,16 @@ class OpticalFlow:
     def mask(self, img1, img2):
         if self.mask_egi:
             egi1 = self.egi_mask(img1)
-            # egi2 = self.egi_mask(img2)
-            # egi = egi1 & egi2
-            egi = egi1
+            egi2 = self.egi_mask(img2)
+            egi = egi1 & egi2
 
-            if self.border_mask is not None:
-                return self.border_mask & egi
+            if self.mask_border:
+                return self.get_border_mask(img1.shape[:2]) & egi
             else:
                 return egi
+
         else:
-            return self.border_mask
+            return self.get_border_mask(img1.shape[:2])
 
     def egi_mask(self, img):
         egi = np.uint8(egi_mask(img) * 255)
@@ -680,10 +709,9 @@ class OpticalFlow:
         return ~egi
 
     @classmethod
-    def dense_optflow(cls, img1, img2, prev_flow=None):
+    def dense_optflow(cls, img1, img2, prev_flow):
         first_image = convert_to_grayscale(img1)
         second_image = convert_to_grayscale(img2)
-        flag = cv.OPTFLOW_USE_INITIAL_FLOW if prev_flow is not None else 0
 
         return cv.calcOpticalFlowFarneback(
             prev=first_image,
@@ -695,7 +723,7 @@ class OpticalFlow:
             iterations=4,
             poly_n=5,
             poly_sigma=1.1,
-            flags=flag)
+            flags=cv.OPTFLOW_USE_INITIAL_FLOW)
 
     @classmethod
     def get_border_mask(cls, image_size):
@@ -746,8 +774,7 @@ class OpticalFlow:
         images = read_image_txt_file(txt_file)
         past_image = cv.imread(images[0])
         data = "0.000000, 0.000000\n"
-        ofCalc = OpticalFlow(past_image.shape[:2],
-            mask_border=masking_border, mask_egi=mask_egi)
+        ofCalc = OpticalFlow(mask_border=masking_border, mask_egi=mask_egi)
 
         for image in images[1:]:
             current_image = cv.imread(image)
@@ -764,7 +791,7 @@ class OpticalFlow:
     def generate_plane(cls, txt_file, name="opt_flow_plane.txt", mask_border=False, mask_egi=False):
         images = read_image_txt_file(txt_file)
         past_image = cv.imread(images[0])
-        of_calc = OpticalFlow(past_image.shape[:2], mask_border=mask_border, mask_egi=mask_egi)
+        of_calc = OpticalFlow(mask_border=mask_border, mask_egi=mask_egi)
         data = "0, 0, 0, 0, 0, 0\n"
 
         for image in images[1:]:

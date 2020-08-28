@@ -22,8 +22,6 @@ class XMLTree:
         dl_document.attrib["width"] = str(width)
         dl_document.attrib["height"] = str(height)
 
-        # Helper Properties
-        bboxes = []
         self.plant_count = 0
         self.save_name = user_name + "_" + os.path.splitext(image_name)[0] + ".xml"
 
