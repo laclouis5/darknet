@@ -77,6 +77,8 @@ class Evaluator:
             acc_FP = np.cumsum([not tp for tp in TP])
             rec = acc_TP / npos
             prec = np.divide(acc_TP, (acc_FP + acc_TP))
+            total_tp = sum(TP)
+            total_fp = len(TP) - total_tp
 
             [ap, mpre, mrec, ii] = Evaluator.CalculateAveragePrecision(rec, prec)
 
@@ -89,9 +91,9 @@ class Evaluator:
                 "interpolated recall": mrec,
                 "total positives": npos,
                 "total detections": len(TP),
-                "total TP": sum(TP),
-                "total FP": sum([not tp for tp in TP]),
-                "accuracy": np.array(accuracies).mean()
+                "total TP": total_tp,
+                "total FP": total_fp,
+                "accuracies": np.array(accuracies)
             })
 
         return ret
@@ -120,18 +122,30 @@ class Evaluator:
         print("coco AP: {:.2%}".format(cocoAP))
 
     def printAPsByClass(self, boxes, thresh=0.5, method=EvaluationMethod.IoU):
-        if thresh is not None:
-            metrics = self.GetPascalVOCMetrics(boxes, thresh, method)
-            print("AP@{} by class:".format(thresh))
-            for metric in metrics:
-                label = metric["class"]
-                AP = metric["AP"]
-                totalPositive = metric["total positives"]
-                totalDetections = metric["total detections"]
-                TP = metric["total TP"]
-                FP = metric["total FP"]
-                accuracy = metric["accuracy"]
-                print("  {:<13} - AP: {:.2%}  npos: {}  nDet: {}  TP: {}  FP: {}, accuracy: {:.4%}".format(label, AP, totalPositive, totalDetections, TP, FP, accuracy))
+        metrics = self.GetPascalVOCMetrics(boxes, thresh, method)
+        tot_tp, tot_fp, tot_npos, accuracy = 0, 0, 0, 0
+        print("AP@{} by class:".format(thresh))
+        for metric in metrics:
+            label = metric["class"]
+            AP = metric["AP"]
+            totalPositive = metric["total positives"]
+            totalDetections = metric["total detections"]
+            TP = metric["total TP"]
+            FP = metric["total FP"]
+            accuracy += sum(metric["accuracies"])
+            tot_tp += TP
+            tot_fp += FP
+            tot_npos += totalPositive
+
+            print("  {:<10} - AP: {:.2%}  npos: {}  nDet: {}  TP: {}  FP: {}".format(label, AP, totalPositive, totalDetections, TP, FP))
+
+        recall = tot_tp / tot_npos
+        precision = tot_tp / (tot_tp + tot_fp)
+        f1 = 2 * recall * precision / (recall + precision)
+        accuracy = accuracy / tot_tp
+
+        print("Global stats: ")
+        print("  recall: {:.2%}, precision: {:.2%}, f1: {:.2%}, acc: {:.2%}".format(recall, precision, f1, accuracy))
 
     def PlotPrecisionRecallCurve(self,
                                  boundingBoxes,
