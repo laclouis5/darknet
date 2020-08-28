@@ -77,9 +77,9 @@ def plot_rec_prec_curve(data, label):
     plt.xticks(percents, ["{:.0%}".format(p) for p in percents])
     plt.yticks(percents, ["{:.0%}".format(p) for p in percents])
     plt.legend(loc="lower left")
-    plt.title("Precision-recall curve as a function of $minDets$ and $maxDist$")
+    # plt.title("Precision-recall curve as a function of $minDets$ and $maxDist$")
     plt.xlim([0.4, 1])  # 0.4
-    plt.ylim([0.5, 1])  # 0.6
+    plt.ylim([0.6, 1])  # 0.6
     plt.show()
 
 def plot_f1_curve(data):
@@ -101,7 +101,7 @@ def plot_f1_curve(data):
     plt.show()
 
 def main():
-    label = "maize"
+    label = "bean"
     file = f"save/aggr_grid_search_{label}_2.csv"
     data = read_csv_file(file)
     data = add_info(data, 94 if label == "bean" else 124)
