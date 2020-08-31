@@ -61,7 +61,7 @@ class BoundingBox:
                 self._height_img = imgSize[1]
             else:
                 raise IOError(
-                    "For relative coordinates, the format must be XYWH (x,y,width,height)")
+                    "For relative coordinates, the format must be XYWH (x, y, width, height)")
         # For absolute coords: (x,y,w,h)=real bb coords
         else:
             if format == BBFormat.XYWH:
@@ -199,7 +199,6 @@ class BoundingBox:
         box = self.copy()
         box.moveBy(dx, dy, typeCoordinates, imgSize)
         return box
-
 
     def clip(self, size=None):
         """
@@ -378,7 +377,6 @@ class BoundingBox:
         else:
             return "{} {} {} {} {}\n".format(self._classId, *bbox)
 
-
     def addIntoImage(self, image, color=None, thickness=2):
         import cv2
 
@@ -419,6 +417,14 @@ class BoundingBox:
                     cv2.LINE_AA)
         return image
 
+    def normalized(self, ratio=7.5/100):
+        side_length = min(self._width_img, self._height_img) * ratio
+        (x, y, _, _) = self.getAbsoluteBoundingBox(format=BBFormat.XYC)
+        box = BoundingBox(
+            imageName=self._imageName, classId=self._classId, x=x, y=y, w=side_length, h=side_length, typeCoordinates=CoordinatesType.Absolute, imgSize=(self._width_img, self._height_img), bbType=self._bbType, classConfidence=self._classConfidence, format=BBFormat.XYC
+        )
+        return box
+
     def copy(self):
         """
         The behavior of this method is obvious, why are you even reading the doc?
@@ -427,7 +433,7 @@ class BoundingBox:
 
     def __str__(self):
         coords = self.getAbsoluteBoundingBox(BBFormat.XYC)
-        description = "{} {} (x: {:.6}, y: {:.6}, w: {:.6}, h: {:.6})".format(
+        description = "{} {} (xMid: {:.6}, yMid: {:.6}, w: {:.6}, h: {:.6})".format(
             os.path.basename(self._imageName),
             self._classId,
             *coords)

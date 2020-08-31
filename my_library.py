@@ -1424,6 +1424,19 @@ def get_perspective_dataset(path, save_dir=None):
         save_name = os.path.join(save_dir, os.path.basename(image))
         cv.imwrite(save_name, warped)
 
+def normalized_stem_boxes(boxes,
+	ratio=7.5/100, labels=["haricot_tige", "mais_tige", "poireau_tige"]
+):
+	normalized_boxes = BoundingBoxes()
+
+	for box in boxes:
+		if box.getClassId() in labels:
+			normalized_boxes.append(box.normalized(ratio))
+		else:
+			normalized_boxes.append(box)
+
+	return normalized_boxes
+
 if __name__ == "__main__":
     # get_perspective_dataset("/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2")
 

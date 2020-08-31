@@ -203,7 +203,7 @@ class BoundingBoxes(MutableSequence):
 
             print("{:<20} {:<15} {}".format(label, nb_images, nb_annot))
 
-    def save(self, type_coordinates=CoordinatesType.Relative, format=BBFormat.XYWH, save_dir=None):
+    def save(self, type_coordinates=CoordinatesType.Relative, format=BBFormat.XYC, save_dir=None):
         """
         Save all bounding boxes as Yolo annotation files in the specified directory.
 
