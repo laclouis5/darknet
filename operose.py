@@ -26,7 +26,7 @@ def create_operose_result(args):
 
     consort = "Bipbip"
 
-    print(image)
+    # print(image)
 
     # Creates and populate XML tree, save plant masks as PGM and XLM file
     # for each images
@@ -58,13 +58,12 @@ def create_operose_result(args):
     # For every detection save PGM mask and add field to the xml tree
     for detection in detections:
         name = detection[0]
-
         if (plants_to_keep is not None) and (name not in plants_to_keep):
             continue
 
         bbox = detection[2]
-        box  = convertBack(bbox[0], bbox[1], bbox[2], bbox[3])
-
+        box  = convertBack((bbox[0]), bbox[1], bbox[2], bbox[3])
+        box = [int(box[0]), int(box[1]), int(box[2]), int(box[3])]
         xml_tree.add_mask(name)
 
         im_out = Image.new(mode='1', size=(w, h))
@@ -197,4 +196,9 @@ def main():
 
 if __name__ == "__main__":
     # main()
-    operose(txt_file="data/haricot_debug_long_2.txt", yolo=YoloModelPath("results/yolov4-tiny_1"), label="stem_bean", min_dets=4, max_dist=9/100)
+    yolo = YoloModelPath("results/yolov4-tiny_6")
+    (cfg, weights, obj) = yolo.get_cfg_weight_meta()
+    yolo_params = {"model": weights, "obj": obj, "cfg": cfg}
+
+    # operose(txt_file="data/haricot_debug_long_2.txt", yolo=YoloModelPath("results/yolov4-tiny_1"), label="stem_bean", min_dets=4, max_dist=9/100)
+    process_operose("/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2/", network_params=yolo_params, save_dir="operose/", plants_to_keep=["bean"])
