@@ -24,12 +24,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from skimage import io
-from sklearn.utils.linear_assignment_ import linear_assignment
+# from sklearn.utils import linear_assignment
+from scipy.optimize import linear_sum_assignment as linear_assignment
 import glob
 import time
 import argparse
 from filterpy.kalman import KalmanFilter
-
 
 @jit
 def iou(bb_test, bb_gt):

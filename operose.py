@@ -6,6 +6,7 @@ import numpy as np
 from PIL import Image
 from joblib import Parallel, delayed
 import os
+from threading import Thread
 
 import argparse
 import glob
@@ -25,8 +26,6 @@ def create_operose_result(args):
     meta_path = network_params["obj"]
 
     consort = "Bipbip"
-
-    # print(image)
 
     # Creates and populate XML tree, save plant masks as PGM and XLM file
     # for each images
@@ -58,6 +57,7 @@ def create_operose_result(args):
     # For every detection save PGM mask and add field to the xml tree
     for detection in detections:
         name = detection[0]
+
         if (plants_to_keep is not None) and (name not in plants_to_keep):
             continue
 
@@ -66,11 +66,11 @@ def create_operose_result(args):
         box = [int(box[0]), int(box[1]), int(box[2]), int(box[3])]
         xml_tree.add_mask(name)
 
-        im_out = Image.new(mode='1', size=(w, h))
+        im_out = Image.new(mode="1", size=(w, h))
         region = im_in.crop(box)
         im_out.paste(region, box)
 
-        image_name_out = '{}_{}_{}.png'.format(
+        image_name_out = "{}_{}_{}.png".format(
             consort,
             os.path.splitext(img_name)[0],
             str(xml_tree.plant_count-1))
@@ -93,61 +93,98 @@ def process_operose(image_path, network_params, save_dir="operose/", plants_to_k
     Parallel(n_jobs=nb_proc, backend="multiprocessing")(delayed(create_operose_result)(arg) for arg in args)
 
 
-def operose(txt_file, yolo, label, min_dets, max_dist,
-    conf_thresh=0.25, save_dir="operose/"
-):
-    """Can add a caching functionnality for optical flow values."""
-    print("WARNING: This function is hardcoded for images of size (H: 632, W: 632).")
-    # TODO:
-    # - Reactive programming pipeline for faster speeds
-
+def operose(txt_file, yolo, keep, thresh=0.25, save_dir="operose/"):
+    cache_dir = os.path.join(save_dir, "cache/")
     create_dir(save_dir)
+    create_dir(cache_dir)
+
     (cfg, weights, meta) = yolo.get_cfg_weight_meta()
     images = read_image_txt_file(txt_file)
-    opt_flow_estimator = OpticalFlow(mask_border=True, mask_egi=True)
-    opt_flows = [BivariateFunction(lambda x, y, ex=0.0, ey=0.0: (ex, ey))]
-    tracker = Tracker(min_confidence=conf_thresh, min_points=min_dets, dist_thresh=max_dist)
-    past_img = None
 
-    for image in images:
-        img = cv.imread(image)
+    min_dets, max_dist = (4, 9/100) if keep == "tige_haricot" else (10, 12/100)
+    tracker = Tracker(thresh, min_dets, max_dist)
 
-        if past_img is not None:
-            displacement = opt_flow_estimator.displacement_eq(img, past_img)
-            opt_flows.append(displacement)
+    (img_h, img_w) = cv.imread(images[0]).shape[:2]
+    x_margin, y_margin = int(img_w * 5/100), int(img_h * 5/100)
 
-        detections = performDetect(imagePath=image, thresh=conf_thresh, configPath=cfg, weightPath=weights, metaPath=meta, showImage=False)
-        image_boxes = Parser.parse_yolo_darknet_detections(detections, image_name=image, img_size=image_size(image), classes=[label])
-        tracker.update(image_boxes, optical_flow=opt_flows[-1])
+    # Compute flows
+    cached_flow = os.path.join(cache_dir, "optical_flow.txt")
 
-        past_img = img
+    def compute_flow():
+        if not os.path.isfile(cached_flow):
+            OpticalFlow.generate(txt_file, name=cached_flow, mask_egi=True)
+
+    optical_flow_thread = Thread(target=compute_flow)
+    optical_flow_thread.start()
+
+    # Compute detections and increment tracker
+    boxes = performDetectOnTxtFile(txt_file, yolo, thresh, n_proc=-1)
+    boxes.save(save_dir=os.path.join(save_dir, "cache/"))
+
+    optical_flow_thread.join()
+    optical_flows = OpticalFlow.read(cached_flow)
+
+    boxes_by_name = boxes.getBoxesBy(lambda box: box.getImageName())
+    for (index, image) in enumerate(images):
+        image_boxes = boxes_by_name[image]
+        tracker.update(image_boxes, optical_flows[index])
 
     boxes = tracker.get_filtered_boxes()
-    boxes = box_association(boxes, images, opt_flows)
-    boxes = BoundingBoxes([box for box in boxes if box.centerIsIn([32, 32, 600, 600])])  # Hardcoded
+    boxes = box_association(boxes, images, optical_flows)
+    boxes = BoundingBoxes([box for box in boxes
+        if box.centerIsIn([x_margin, y_margin, img_w - x_margin, img_h - y_margin])])
 
-    for image in images:
+    # Write stuff
+    def inner(element):
+        (image, image_boxes) = element
+
         image_name = os.path.basename(image)
-        image_boxes = boxes.getBoundingBoxesByImageName(image)
-        img = cv.imread(image)
-        (img_height, img_width) = img.shape[:2]
-        radius = int(5/100 * min(img_width, img_height) / 2)
+        (img_h, img_w) = cv.imread(image).shape[:2]
+        radius = int(5/100 * min(img_w, img_h) / 2)
 
-        xml_tree = XMLTree(image_name=image_name, width=img_width, height=img_height)
+        xml_tree = XMLTree(image_name, width=img_w, height=img_h)
 
         for box in image_boxes:
-            (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
             label = box.getClassId()
             xml_tree.add_mask(label)
+
+            (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
+            rect = [int(x) - radius, int(y) - radius, int(x) + radius, int(y) + radius]
+
             out_name = f"Bipbip_{os.path.splitext(image_name)[0]}_{xml_tree.plant_count-1}.png"
 
-            stem_mask = Image.new(mode="1", size=(img_width, img_height))
-            # stem_mask = Image.open(image)
-            box = [int(x) - radius, int(y) - radius, int(x) + radius, int(y) + radius]
-            stem_mask.paste(Image.new(mode="1", size=(radius*2, radius*2), color=1), box)
+            stem_mask = Image.new(mode="1", size=(img_w, img_h))
+            stem_mask.paste(Image.new(mode="1", size=(radius*2, radius*2), color=1), rect)
             stem_mask.save(os.path.join(save_dir, out_name))
 
             xml_tree.save(save_dir)
+
+    Parallel(n_jobs=-1, verbose=10)(
+        delayed(inner)(element) for element in boxes.getBoxesBy(lambda box: box.getImageName()).items())
+
+
+def calibrate_folder(folder, save_dir="calibrated/", n_proc=-1):
+    create_dir(save_dir)
+    images = files_with_extension(folder, ".jpg")
+    (img_h, img_w) = cv.imread(images[0]).shape[:2]
+    (mapx, mapy) = basler3M_calibration_maps((img_w, img_h))
+
+    def calibrate_image(image):
+        save_name = os.path.join(save_dir, os.path.basename(image))
+        img = cv.imread(image)
+        calibrated = calibrate(img, mapx, mapy)
+        cv.imwrite(save_name, calibrated)
+
+    Parallel(n_jobs=n_proc, verbose=10)(delayed(calibrate_image)(image) for image in images)
+
+
+def create_image_list_file(folder, save_dir=None):
+    save_dir = save_dir if save_dir else folder
+    create_dir(save_dir)
+    images = sorted(files_with_extension(folder, ".jpg"))
+    with open(os.path.join(save_dir, "image_list.txt"), "w") as f:
+        for image in images:
+            f.write(image + "\n")
 
 
 def main():
@@ -156,7 +193,7 @@ def main():
     parser.add_argument("save_dir", help="Directory to save masks and xml files.")
     parser.add_argument("model", help="Directory containing cfg, data ans weights files.")
     parser.add_argument("-l", action="append", dest="labels", help="Labels to keep. Default is all.")
-    parser.add_argument("-nproc", type=int, help="Number of proc to use to speed up inference. Default is 1. -1 for using all available procs.")
+    parser.add_argument("-nproc", type=int, defalut=1, help="Number of proc to use to speed up inference. Default is 1. -1 for using all available procs.")
     args = parser.parse_args()
 
     image_path = os.path.join(args.images_path)
@@ -174,31 +211,27 @@ def main():
     print("PARAM USED: ")
     print("Image directory: {}".format(image_path))
     print("Save directory: {}".format(save_dir_operose))
+
     if keep_challenge is None:
         print("Labels to keep: all")
     else:
         print("Labels to keep: {}".format(keep_challenge))
-    if nproc is None:
-        print("Number of proc used: 1")
-    else:
-        print("Number of proc used: {}".format(nproc))
+
+    print("Number of proc used: {}".format("all" if nproc == -1 else nproc))
+
     print("Model in use: ")
     print("  {}".format(model_path))
     print("  {}".format(config_file))
     print("  {}".format(meta_path))
     print()
 
-    if nproc is not None:
-        process_operose(image_path, yolo_param, plants_to_keep=keep_challenge, save_dir=save_dir_operose, nb_proc=nproc)
-    else:
-        process_operose(image_path, yolo_param, plants_to_keep=keep_challenge, save_dir=save_dir_operose, nb_proc=1)
+    process_operose(image_path, yolo_param, plants_to_keep=keep_challenge, save_dir=save_dir_operose, nb_proc=nproc)
 
 
 if __name__ == "__main__":
     # main()
-    yolo = YoloModelPath("results/yolov4-tiny_6")
-    (cfg, weights, obj) = yolo.get_cfg_weight_meta()
-    yolo_params = {"model": weights, "obj": obj, "cfg": cfg}
-
-    # operose(txt_file="data/haricot_debug_long_2.txt", yolo=YoloModelPath("results/yolov4-tiny_1"), label="stem_bean", min_dets=4, max_dist=9/100)
-    process_operose("/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2/", network_params=yolo_params, save_dir="operose/", plants_to_keep=["bean"])
+    # calibrate_folder("/Users/louislac/Downloads/test_operose")
+    yolo = YoloModelPath("results/yolov4-tiny_8/")
+    folder = "/Users/louislac/Downloads/test_operose/"
+    create_image_list_file(folder)
+    operose(os.path.join(folder, "image_list.txt"), yolo, "haricot_tige")

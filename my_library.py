@@ -208,8 +208,7 @@ class Tracker:
     def get_filtered_tracks(self):
         return [track for track in self.tracks
             if track.mean_confidence() > self.min_confidence
-            and len(track) > self.min_points
-        ]
+            and len(track) > self.min_points]
 
     def print_stats_for_tracks(self, tracks=None):
         if tracks is None:
@@ -227,12 +226,7 @@ class Track(MutableSequence):
 
     def __init__(self, history=None):
         self.track_id = Track.track_id
-
-        if history == None:
-            self.history = BoundingBoxes()
-        else:
-            self.history = history
-
+        self.history = history if history else BoundingBoxes()
         Track.track_id += 1
 
     def __len__(self):
@@ -266,7 +260,7 @@ class Track(MutableSequence):
             imageName="No name",
             classId=ref_box.getClassId(),
             x=box[0], y=box[1], w=box[2], h=box[3],
-            typeCoordinates=ref_box.getCoordinatesType(),
+            typeCoordinates=CoordinatesType.Absolute,
             imgSize=ref_box.getImageSize(),
             bbType=ref_box.getBBType(),
             classConfidence=self.mean_confidence(),
@@ -780,7 +774,7 @@ class OpticalFlow:
             current_image = cv.imread(image)
             dx, dy = ofCalc.displacement(current_image, past_image)
             line = f"{dx}, {dy}\n"
-            print(line)
+            print("(dx: {:.4}, dy: {:.4})".format(dx, dy))
             data += line
             past_image = current_image
 
@@ -1273,7 +1267,7 @@ def basler3M_calibration_maps(image_size=None):
 
     mtx = np.array([[1846.48412, 0.0,        1044.42589],
                     [0.0,        1848.52060, 702.441180],
-                    [0.0,        0.0,        1.0]])
+                    [0.0,        0.0,        1.0       ]])
 
     dist = np.array([[-0.19601338, 0.07861078, 0.00182995, -0.00168376, 0.02604818]])
 
@@ -1284,10 +1278,13 @@ def basler3M_calibration_maps(image_size=None):
         mapx = cv.resize(mapx, (image_size[0], image_size[1])) * image_size[0] / original_img_size[0]
         mapy = cv.resize(mapy, (image_size[0], image_size[1])) * image_size[1] / original_img_size[1]
 
+    (mapx, mapy) = cv.convertMaps(mapx, mapy, cv.CV_16SC2)
+
     return (mapx, mapy)
 
-def calibrated(img, mapx, mapy):
-    return cv.remap(img, mapx, mapy, interpolation=cv.INTER_CUBIC)
+
+def calibrate(img, mapx, mapy):
+    return cv.remap(img, mapx, mapy, cv.INTER_LINEAR)
 
 def RMSE_opt_flow(txt_file):
     images = []

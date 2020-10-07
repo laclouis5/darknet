@@ -33,6 +33,7 @@ import random
 import os
 import datetime
 import time
+import joblib
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -574,22 +575,39 @@ def save_yolo_detections(network, file_dir, save_dir="", bbCoords=CoordinatesTyp
 
     boxes.save(bbCoords, bbFormat, save_dir)
 
-def performDetectOnFolder(network, directory, conf_thresh=0.5/100):
-    model = network.weights
-    cfg = network.cfg
-    obj = network.meta
-
-    boxes = BoundingBoxes()
+def performDetectOnFolder(network, directory, conf_thresh=0.5/100, n_proc=1):
+    """
+    Do not use parallel processing when using GPU.
+    """
+    (cfg, model, obj) = network.get_cfg_weight_meta()
     images = files_with_extension(directory, ".jpg")
-    images_count = len(images)
 
-    for i, image in enumerate(images):
-        print("{:.4}%".format(100 * (i + 1) / images_count))
+    def detect(image):
         img_size = image_size(image)
-        detections = performDetect(image, thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
-        boxes += Parser.parse_yolo_darknet_detections(detections, image, img_size)
+        detections = performDetect(image,
+            thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
+        boxes = Parser.parse_yolo_darknet_detections(detections, image, img_size)
+        return boxes
+
+    boxes = Parallel(n_jobs=n_proc, verbose=10)(delayed(detect)(image) for image in images)
+    boxes = BoundingBoxes([box for wrapped in boxes for box in wrapped])
 
     return boxes
+
+
+def performDetectOnTxtFile(txt_file, network, thresh=0.25, n_proc=1):
+    (cfg, weights, meta) = network.get_cfg_weight_meta()
+    images = read_image_txt_file(txt_file)
+
+    def inner(image):
+        detections = performDetect(image,
+            thresh=thresh, configPath=cfg, weightPath=weights, metaPath=meta, showImage=False)
+        return Parser.parse_yolo_darknet_detections(detections, image, image_size(image))
+
+    boxes = Parallel(n_jobs=n_proc, verbose=10)(delayed(inner)(image) for image in images)
+
+    return BoundingBoxes([box for wrapped in boxes for box in wrapped])
+
 
 def performDetectOnFolderAndTrack(network, txt_file, conf_thresh=0.25, max_age=1, min_hits=3):
     """
