@@ -11,8 +11,11 @@ from .utils import *
 class Evaluator:
     cocoThresholds = [thresh / 100 for thresh in range(50, 100, 5)]
 
+    # def __init__(self):
+    #     self.metrics = []
+
     def GetPascalVOCMetrics(self, boxes, thresh=0.5, method=EvaluationMethod.IoU):
-        ret = []
+        ret = {}
         boxesByLabels = dictGrouping(boxes, key=lambda box: box.getClassId())
         labels = sorted(boxesByLabels.keys())
 
@@ -82,19 +85,20 @@ class Evaluator:
 
             [ap, mpre, mrec, ii] = Evaluator.CalculateAveragePrecision(rec, prec)
 
-            ret.append({
-                "class": label,
+            ret[label] = {
                 "precision": prec,
                 "recall": rec,
                 "AP": ap,
-                "interpolated precision": mpre,
-                "interpolated recall": mrec,
+                "threshold": thresh,
+                # "interpolated precision": mpre,
+                # "interpolated recall": mrec,
                 "total positives": npos,
                 "total detections": len(TP),
                 "total TP": total_tp,
                 "total FP": total_fp,
-                "accuracies": np.array(accuracies)
-            })
+                "accuracies": np.array(accuracies),
+                "evaluation method": method
+            }
 
         return ret
 
@@ -104,7 +108,7 @@ class Evaluator:
 
     def getAP(self, boundingBoxes, thresh=0.5, method=EvaluationMethod.IoU):
         AP = [res["AP"]
-            for res in self.GetPascalVOCMetrics(boundingBoxes, thresh, method)]
+            for res in self.GetPascalVOCMetrics(boundingBoxes, thresh, method).values()]
         return sum(AP) / len(AP) if AP else 0.0
 
     def getCocoAP(self, boundingBoxes):
@@ -125,8 +129,7 @@ class Evaluator:
         metrics = self.GetPascalVOCMetrics(boxes, thresh, method)
         tot_tp, tot_fp, tot_npos, accuracy = 0, 0, 0, 0
         print("AP@{} by class:".format(thresh))
-        for metric in metrics:
-            label = metric["class"]
+        for (label, metric) in metrics.items():
             AP = metric["AP"]
             totalPositive = metric["total positives"]
             totalDetections = metric["total detections"]

@@ -1474,8 +1474,11 @@ if __name__ == "__main__":
     # model_path = "results/yolov4_3"  # BDD 4.2
     # model_path = "results/yolov4-tiny_3l_2"  # BDD 4.2
     # model_path = "results/yolov4-tiny_4"  # BDD 6.0
-    model_path = "results/yolov4-tiny_6"  # BDD 4.2, norm stem
+    # model_path = "results/yolov4-tiny_6"  # BDD 4.2, norm stem
     # model_path = "results/yolov4_4"  # BDD 4.2 norm stem 7.5
+    # model_path = "results/yolov4-tiny_7"  # BDD 6.1 norm stems
+    # model_path = "results/yolov4-tiny_8"  # BDD 7.0 norm stems
+    model_path = "results/yolov4_5"  # BDD 7.0 norm stems
 
     yolo = YoloModelPath(model_path)
 
@@ -1502,15 +1505,15 @@ if __name__ == "__main__":
     en_to_fr = {"maize": "mais", "bean": "haricot", "leek": "poireau", "stem_maize": "mais_tige","stem_bean": "haricot_tige", "stem_leek": "poireau_tige"}
 
     # COMPUTE MAP
-    # labels = ["maize", "bean", "stem_maize", "stem_bean"]
-    # # labels = ["maize", "bean", "leek", "stem_maize", "stem_bean", "stem_leek"]
-    # gts = Parser.parse_yolo_gt_folder(val_path)
-    # gts.mapLabels(number_to_label)
-    # gts = gts.getBoundingBoxByClass(labels)
-    # dets = performDetectOnFolder(yolo, val_path, conf_thresh=0.5/100)
-    # dets = dets.getBoundingBoxByClass(labels)
-    # Evaluator().printAPs(gts + dets)
-    # Evaluator().printAPsByClass(gts + dets)
+    labels = ["maize", "bean", "stem_maize", "stem_bean"]
+    # labels = ["maize", "bean", "leek", "stem_maize", "stem_bean", "stem_leek"]
+    gts = Parser.parse_yolo_gt_folder(val_path)
+    gts.mapLabels(number_to_label)
+    gts = gts.getBoundingBoxByClass(labels)
+    dets = performDetectOnFolder(yolo, val_path, conf_thresh=25/100)
+    dets = dets.getBoundingBoxByClass(labels)
+    Evaluator().printAPs(gts + dets)
+    Evaluator().printAPsByClass(gts + dets)
 
     # detect_and_track_aggr_visu(yolo, bean_long, bean_opt_flow, "stem_bean", conf_thresh=0.25)
     # point_cloud_visu(yolo, bean_long, bean_opt_flow, "stem_bean")
@@ -1536,49 +1539,49 @@ if __name__ == "__main__":
     #     save_dir="save/stem_bean_temp_5"
     # )
 
-    # FILTERING EVALUATION
-    gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
-    # gts = normalized_stem_boxes(gts, labels=[en_to_fr["stem_bean"]])  # Normalization
-    gts.mapLabels(fr_to_en)
-    boxes = Parser.parse_yolo_det_folder("save/stem_bean_temp_2/",
-        img_folder=bean_long_folder,
-        bbFormat=BBFormat.XYX2Y2,
-        typeCoordinates=CoordinatesType.Absolute,
-        classes=["stem_bean"])
-    # boxes.mapLabels({"bean": "stem_bean"})
-    tracker = detect_and_track_aggr_2(boxes, bean_long, bean_opt_flow,
-        conf_thresh=25/100, min_points=4, dist_thresh=9/100)  # Bean: 4,9 ; Maize:14, 12
-    # tracks = associate_tracks_with_image(bean_long, bean_opt_flow, tracker)
-    # tracks = {k: v for (k, v) in tracks.items() if k in gts.getNames()}
-    # draw_tracked_confidence_ellipse(tracks)
-    dets = tracker.get_filtered_boxes()
-    dets = associate_boxes_with_image(bean_long, bean_opt_flow, dets)
-    dets = BoundingBoxes([det for det in dets
-        if det.getImageName() in gts.getNames()
-        and det.centerIsIn([32, 32, 600, 600])
-    ])
-    Evaluator().printAPsByClass((dets + gts),
-        thresh=5/100, method=EvaluationMethod.Distance)
-    dets.drawAllCenters(save_dir="save/aggr_tracking/")
-    # gts.drawAllCenters("save/gts_bean_centers")
-
-    # # # WITHOUT FILTERING EVALUATION
-    gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
-    gts.mapLabels(fr_to_en)
-    boxes = Parser.parse_yolo_det_folder("save/stem_bean_temp_2/",
-        img_folder=bean_long_folder,
-        bbFormat=BBFormat.XYX2Y2,
-        typeCoordinates=CoordinatesType.Absolute,
-        classes=["stem_bean"])
-    # boxes.mapLabels({"bean": "stem_bean"})
-    dets = BoundingBoxes([det for det in boxes
-        if det.getImageName() in gts.getNames()
-        and det.centerIsIn([32, 32, 600, 600])
-    ])
-    Evaluator().printAPsByClass((dets + gts),
-        thresh=5/100,
-        method=EvaluationMethod.Distance)
-    # dets.drawAllCenters("save/tmp")
+    # # FILTERING EVALUATION
+    # gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
+    # # gts = normalized_stem_boxes(gts, labels=[en_to_fr["stem_bean"]])  # Normalization
+    # gts.mapLabels(fr_to_en)
+    # boxes = Parser.parse_yolo_det_folder("save/stem_bean_temp_2/",
+    #     img_folder=bean_long_folder,
+    #     bbFormat=BBFormat.XYX2Y2,
+    #     typeCoordinates=CoordinatesType.Absolute,
+    #     classes=["stem_bean"])
+    # # boxes.mapLabels({"bean": "stem_bean"})
+    # tracker = detect_and_track_aggr_2(boxes, bean_long, bean_opt_flow,
+    #     conf_thresh=25/100, min_points=4, dist_thresh=9/100)  # Bean: 4,9 ; Maize:14, 12
+    # # tracks = associate_tracks_with_image(bean_long, bean_opt_flow, tracker)
+    # # tracks = {k: v for (k, v) in tracks.items() if k in gts.getNames()}
+    # # draw_tracked_confidence_ellipse(tracks)
+    # dets = tracker.get_filtered_boxes()
+    # dets = associate_boxes_with_image(bean_long, bean_opt_flow, dets)
+    # dets = BoundingBoxes([det for det in dets
+    #     if det.getImageName() in gts.getNames()
+    #     and det.centerIsIn([32, 32, 600, 600])
+    # ])
+    # Evaluator().printAPsByClass((dets + gts),
+    #     thresh=5/100, method=EvaluationMethod.Distance)
+    # dets.drawAllCenters(save_dir="save/aggr_tracking/")
+    # # gts.drawAllCenters("save/gts_bean_centers")
+    #
+    # # # # WITHOUT FILTERING EVALUATION
+    # gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
+    # gts.mapLabels(fr_to_en)
+    # boxes = Parser.parse_yolo_det_folder("save/stem_bean_temp_2/",
+    #     img_folder=bean_long_folder,
+    #     bbFormat=BBFormat.XYX2Y2,
+    #     typeCoordinates=CoordinatesType.Absolute,
+    #     classes=["stem_bean"])
+    # # boxes.mapLabels({"bean": "stem_bean"})
+    # dets = BoundingBoxes([det for det in boxes
+    #     if det.getImageName() in gts.getNames()
+    #     and det.centerIsIn([32, 32, 600, 600])
+    # ])
+    # Evaluator().printAPsByClass((dets + gts),
+    #     thresh=5/100,
+    #     method=EvaluationMethod.Distance)
+    # # dets.drawAllCenters("save/tmp")
 
     # GRID SEARCH TEST
     # gts = Parser.parse_xml_folder(maize_long_folder, [en_to_fr["stem_maize"]])
