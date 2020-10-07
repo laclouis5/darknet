@@ -53,7 +53,7 @@ class BoundingBox:
         # For relative coords: (x,y,w,h)=(X_center/img_width , Y_center/img_height)
         if (typeCoordinates == CoordinatesType.Relative):
             """!!! Input is (xCenter, yCenter, w, h), rel"""
-            if format == BBFormat.XYWH:
+            if format == BBFormat.XYC:
                 (self._x, self._y, self._x2, self._y2) = convertToAbsoluteValues(imgSize, (x, y, w, h))
                 self._w = self._x2 - self._x
                 self._h = self._y2 - self._y

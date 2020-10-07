@@ -66,17 +66,17 @@ class Parser:
         boxes = BoundingBoxes()
 
         for file in files_with_extension(folder, ".txt"):
-            boxes += Parser.parse_yolo_gt_file(file, classes=classes)
+            boxes += Parser.parse_yolo_gt_file(file, classes)
 
         return boxes
 
     @staticmethod
-    def parse_yolo_det_folder(folder, img_folder, classes=None, bbFormat=BBFormat.XYWH, typeCoordinates=CoordinatesType.Relative):
+    def parse_yolo_det_folder(folder, img_folder, classes=None):
         boxes = BoundingBoxes()
 
         for file in files_with_extension(folder, ".txt"):
             image_name = os.path.join(img_folder, os.path.basename(os.path.splitext(file)[0] + ".jpg"))
-            boxes += Parser.parse_yolo_det_file(file, image_name, classes, bbFormat, typeCoordinates)
+            boxes += Parser.parse_yolo_det_file(file, image_name, classes)
 
         return boxes
 
@@ -102,17 +102,14 @@ class Parser:
             if classes and label not in classes:
                 continue
 
-            box = BoundingBox(imageName=image_name, classId=label,x=x, y=y, w=w, h=h, typeCoordinates=CoordinatesType.Relative, format=BBFormat.XYWH, imgSize=img_size, bbType=BBType.GroundTruth)
+            box = BoundingBox(imageName=image_name, classId=label,x=x, y=y, w=w, h=h, typeCoordinates=CoordinatesType.Relative, format=BBFormat.XYC, imgSize=img_size, bbType=BBType.GroundTruth)
 
             boxes.append(box)
 
         return boxes
 
     @staticmethod
-    def parse_yolo_det_file(file, image_name, classes=None, bbFormat=BBFormat.XYWH, typeCoordinates=CoordinatesType.Relative):
-        """
-        If coordinates are relative you should provide img_size.
-        """
+    def parse_yolo_det_file(file, image_name, classes=None):
         boxes = BoundingBoxes()
         img_size = PIL.Image.open(image_name).size
 
@@ -128,7 +125,10 @@ class Parser:
             if classes and label not in classes:
                 continue
 
-            box = BoundingBox(imageName=image_name, classId=label, x=x, y=y, w=w, h=h, classConfidence=confidence, typeCoordinates=typeCoordinates, format=bbFormat, imgSize=img_size, bbType=BBType.Detected)
+            box = BoundingBox(imageName=image_name, classId=label, x=x, y=y, w=w, h=h,
+            classConfidence=confidence, typeCoordinates=CoordinatesType.Relative,
+            format=BBFormat.XYC, imgSize=img_size, bbType=BBType.Detected)
+
             boxes.append(box)
 
         return boxes
