@@ -4,6 +4,7 @@ from .utils import *
 from random import shuffle
 import matplotlib.pyplot as plt
 from collections.abc import MutableSequence
+from collections import defaultdict
 
 import cv2 as cv
 from joblib import Parallel, delayed
@@ -62,6 +63,12 @@ class BoundingBoxes(MutableSequence):
             return BoundingBoxes([bb for bb in self if bb.getClassId() in classId])
         else:
             return BoundingBoxes([bb for bb in self if bb.getClassId() == classId])
+
+    def getBoxesBy(self, key_provider):
+        output = defaultdict(BoundingBoxes)
+        for box in self:
+            output[key_provider(box)].append(box)
+        return output
 
     def getDetectionBoxesAsNPArray(self):
         import numpy as np

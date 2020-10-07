@@ -149,6 +149,19 @@ def operose(txt_file, yolo, keep, min_dets, max_dist, conf_thresh=0.25, save_dir
             xml_tree.save(save_dir)
 
 
+def calibrate_folder(folder, save_dir="calibrated"):
+    create_dir(save_dir)
+    images = files_with_extension(folder, ".jpg")
+    (img_h, img_w) = cv.imread(images[0]).shape[:2]
+    (mapx, mapy) = basler3M_calibration_maps((img_w, img_h))
+
+    for image in images:
+        save_name = os.path.join(save_dir, os.path.basename(image))
+        img = cv.imread(image)
+        calibrated = calibrate(img, mapx, mapy)
+        cv.imwrite(save_name, calibrated)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("images_path", help="Path where images for detection are stored.")
@@ -192,11 +205,12 @@ def main():
 
 if __name__ == "__main__":
     # main()
-    yolo = YoloModelPath("results/yolov4-tiny_8")
-    # (cfg, weights, obj) = yolo.get_cfg_weight_meta()
-    # yolo_params = {"model": weights, "obj": obj, "cfg": cfg}
 
-    operose("/Users/louislac/Desktop/haricot_debug_long_2.txt", yolo,
-        keep="tige_haricot", min_dets=4, max_dist=9/100)
+    calibrate_folder("/Users/louislac/Downloads/test_operose")
+
+    # yolo = YoloModelPath("results/yolov4-tiny_8/")
+    # operose("/Users/louislac/Downloads/test_operose/image_list.txt", yolo,
+    #     keep="tige_haricot", min_dets=4, max_dist=9/100)
+
 
     # process_operose("/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2/", network_params=yolo_params, save_dir="operose/", plants_to_keep=["bean"])

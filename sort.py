@@ -31,7 +31,6 @@ import time
 import argparse
 from filterpy.kalman import KalmanFilter
 
-
 @jit
 def iou(bb_test, bb_gt):
     """
