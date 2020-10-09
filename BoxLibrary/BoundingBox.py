@@ -417,6 +417,18 @@ class BoundingBox:
                     cv2.LINE_AA)
         return image
 
+    def drawCenter(self, save_name=None):
+        label = self.getClassId()
+        (x, y, _, _) = self.getAbsoluteBoundingBox(BBFormat.XYC)
+        image_name = self.getImageName()
+        name = os.path.basename(image_name)
+        save_name = f"center_{name}" if not save_name else save_name
+
+        image = cv.imread(image_name)
+        color = (0, 255, 0) if self.getBBType() == BBType.GroundTruth else (0, 0, 255)
+        cv.circle(image, (int(x), int(y)), 5, color, thickness=cv.FILLED)
+        cv.imwrite(save_name, image)
+
     def normalized(self, ratio=7.5/100):
         side_length = min(self._width_img, self._height_img) * ratio
         (x, y, _, _) = self.getAbsoluteBoundingBox(format=BBFormat.XYC)

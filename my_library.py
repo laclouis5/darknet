@@ -713,7 +713,7 @@ class OpticalFlow:
             flow=prev_flow,
             pyr_scale=0.5,
             levels=4,
-            winsize=8,
+            winsize=16,
             iterations=4,
             poly_n=5,
             poly_sigma=1.1,
@@ -835,6 +835,89 @@ class OpticalFlow:
             y0 += vy
         return (x0 - x, y0 - y)
 
+class OpticalFlowLK:
+    feature_params = {
+        "maxCorners": 150,
+        "qualityLevel": 0.5,
+        "minDistance": 32,
+        "blockSize": 32
+    }
+
+    lk_params = {
+        "winSize": (16, 16),
+        "maxLevel": 3,
+    }
+
+    def __init__(self):
+        self.prev_dx = 0.0
+        self.prev_dy = 0.0
+
+    def __call__(self, prev, next, mask_egi=False, mask_border=False):
+        if mask_egi:
+            mask = 255 - cv_egi_mask(next)
+
+        if mask_border:
+            (img_h, img_w) = prev.shape[:2]
+            border_mask = np.full((img_h, img_w), 0, dtype=np.uint8)
+            m_x, m_y = int(0.1 * img_w), int(0.1 * img_h)
+            border_mask[m_y:img_h-m_y, m_x:img_w-m_x] = 255
+            mask = mask & border_mask if egi_mask else border_mask
+
+        prev_gray = cv.cvtColor(prev, cv.COLOR_BGR2GRAY)
+        next_gray = cv.cvtColor(next, cv.COLOR_BGR2GRAY)
+
+        p0 = cv.goodFeaturesToTrack(prev_gray,
+            mask=mask, **self.feature_params).astype(np.float32)
+        p1_est = (p0 + [self.prev_dx, self.prev_dy]).astype(np.float32)
+
+        p1, st1, _ = cv.calcOpticalFlowPyrLK(prev_gray, next_gray, p0, p1_est,
+            cv.OPTFLOW_USE_INITIAL_FLOW, **self.lk_params)
+        p0r, st2, _ = cv.calcOpticalFlowPyrLK(next_gray, prev_gray, p1,
+            None, **self.lk_params)
+
+        # keep = st1 & st2 & (abs(p0r - p0) < 1.0).max(-1)
+        keep = (abs(p0r - p0) < 1.0).max(-1)
+
+        t, _ = cv.estimateAffine2D(p1[keep == 1], p0[keep == 1])
+        self.prev_dx, self.prev_dy = t[0][2], t[1][2]
+
+        # self.prev_dx, self.prev_dy = (p0[keep == 1] - p1[keep == 1]).mean(0)
+
+        return self.prev_dx, self.prev_dy
+
+    @staticmethod
+    def generate(txt_file, file_name="optical_flow.csv", mask_egi=False, mask_border=False):
+        images = read_image_txt_file(txt_file)
+        prev = cv.imread(images[0])
+        opt_flow = OpticalFlowLK()
+        flows = [(0.0, 0.0)]
+
+        for image in images[1:]:
+            next = cv.imread(image)
+            dx, dy = opt_flow(prev, next, mask_egi, mask_border)
+            flows.append((dx, dy))
+            print("Flow: (dx: {:.6}, dy: {:.6})".format(dx, dy))
+
+            prev = next
+
+        with open(file_name, "w") as f:
+            for (dx, dy) in flows:
+                f.write(f"{dx},{dy}\n")
+
+    @staticmethod
+    def read(csv_file):
+        flows = []
+
+        with open(csv_file, "r") as f:
+            for line in f.readlines():
+                line = line.strip().split(",")
+                dx, dy = float(line[0]), float(line[1])
+                flows.append(BivariateFunction(
+                    lambda x, y, ex=dx, ey=dy: (ex, ey)
+                ))
+        return flows
+
+
 def egi_mask(image, thresh=35):
     '''
     Takes as input a numpy array describing an image and return a
@@ -877,7 +960,7 @@ def cv_egi_mask(image, thresh=40):
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (10, 10))
     image_morph = cv.morphologyEx(img_out, op=cv.MORPH_CLOSE, kernel=kernel)
 
-    return image_morph.astype(np.bool)
+    return image_morph.astype(np.uint8)
 
 
 def create_dir(directory):

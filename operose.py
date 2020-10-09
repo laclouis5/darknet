@@ -97,29 +97,34 @@ def operose(txt_file, yolo, keep, thresh=0.25, save_dir="operose/"):
     cache_dir = os.path.join(save_dir, "cache/")
     create_dir(save_dir)
     create_dir(cache_dir)
+    create_dir(os.path.join(cache_dir, "detections/"))
 
     (cfg, weights, meta) = yolo.get_cfg_weight_meta()
     images = read_image_txt_file(txt_file)
 
-    min_dets, max_dist = (4, 9/100) if keep == "tige_haricot" else (10, 12/100)
+    min_dets, max_dist = (5, 7.5/100)
     tracker = Tracker(thresh, min_dets, max_dist)
 
     (img_h, img_w) = cv.imread(images[0]).shape[:2]
     x_margin, y_margin = int(img_w * 5/100), int(img_h * 5/100)
 
     # Compute flows
-    cached_flow = os.path.join(cache_dir, "optical_flow.txt")
+    cached_flow = os.path.join(cache_dir, "optical_flow.csv")
 
     def compute_flow():
         if not os.path.isfile(cached_flow):
-            OpticalFlow.generate(txt_file, name=cached_flow, mask_egi=True)
+            OpticalFlowLK.generate(txt_file, cached_flow, mask_egi=True, mask_border=True)
 
     optical_flow_thread = Thread(target=compute_flow)
     optical_flow_thread.start()
 
     # Compute detections and increment tracker
-    boxes = performDetectOnTxtFile(txt_file, yolo, thresh, n_proc=-1)
-    boxes.save(save_dir=os.path.join(save_dir, "cache/"))
+    # boxes = performDetectOnTxtFile(txt_file, yolo, thresh, n_proc=-1)
+    boxes = Parser.parse_yolo_det_folder(os.path.join(save_dir, "cache/detections"), "/Users/louislac/Desktop/haricot_debug_montoldre_2")
+    boxes.getBoundingBoxByClass(keep)
+    boxes = BoundingBoxes([box for box in boxes
+        if box.centerIsIn([x_margin, y_margin, img_w - x_margin, img_h - y_margin])])
+    boxes.save(save_dir=os.path.join(save_dir, "cache/detections"))
 
     optical_flow_thread.join()
     optical_flows = OpticalFlow.read(cached_flow)
@@ -133,6 +138,7 @@ def operose(txt_file, yolo, keep, thresh=0.25, save_dir="operose/"):
     boxes = box_association(boxes, images, optical_flows)
     boxes = BoundingBoxes([box for box in boxes
         if box.centerIsIn([x_margin, y_margin, img_w - x_margin, img_h - y_margin])])
+    boxes.drawAllCenters()
 
     # Write stuff
     def inner(element):
@@ -232,6 +238,7 @@ if __name__ == "__main__":
     # main()
     # calibrate_folder("/Users/louislac/Downloads/test_operose")
     yolo = YoloModelPath("results/yolov4-tiny_8/")
-    folder = "/Users/louislac/Downloads/test_operose/"
-    create_image_list_file(folder)
+    # folder = "/Users/louislac/Downloads/test_operose/"
+    folder = "/Users/louislac/Desktop/haricot_debug_montoldre_2/"
+    # create_image_list_file(folder)
     operose(os.path.join(folder, "image_list.txt"), yolo, "haricot_tige")
