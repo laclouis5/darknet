@@ -14,7 +14,6 @@
 *.lib
 *.dylib
 *.pyc
-<<<<<<< HEAD
 results/
 mnist/
 caffe/
@@ -34,6 +33,7 @@ env/
 results/
 operose/
 models/
+annotated_images/
 build/darknet/*
 build_*/
 !build/darknet/YoloWrapper.cs
