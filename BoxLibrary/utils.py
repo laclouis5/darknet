@@ -57,9 +57,9 @@ class BBFormat(Enum):
         Developed by: Rafael Padilla
         Last modification: May 24 2018
     """
-    XYWH = 0
-    XYX2Y2 = 1
-    XYC = 2
+    XYWH = 0  # (x_min, y_min, width, height)
+    XYX2Y2 = 1  # (x_min, y_min, x_max, y_max)
+    XYC = 2  # (x_mid, y_mid, width, height)
 
 # Equivalent to xyx2y2_to_xywh()
 def convertToAbsCenterValues(xmin, ymin, xmax, ymax):
@@ -102,7 +102,8 @@ def image_size(image):
     """
     return PIL.Image.open(image).size
 
-def dictGrouping(array, key):
-    dict = defaultdict(list)
-    [dict[key(element)].append(element) for element in array]
-    return dict
+def dictGrouping(iterable, key):
+    d = defaultdict(list)
+    for element in iterable:
+        d[key(element)].append(element)
+    return d

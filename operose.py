@@ -93,7 +93,7 @@ def process_operose(image_path, network_params, save_dir="operose/", plants_to_k
     Parallel(n_jobs=nb_proc, backend="multiprocessing")(delayed(create_operose_result)(arg) for arg in args)
 
 
-def operose(txt_file, yolo, keep, thresh=0.25, save_dir="operose/"):
+def operose(txt_file, yolo, keep, thresh=0.25, save_dir="operose/", nproc=1):
     cache_dir = os.path.join(save_dir, "cache/")
     create_dir(save_dir)
     create_dir(cache_dir)
@@ -113,20 +113,27 @@ def operose(txt_file, yolo, keep, thresh=0.25, save_dir="operose/"):
 
     def compute_flow():
         if not os.path.isfile(cached_flow):
-            OpticalFlowLK.generate(txt_file, cached_flow, mask_egi=True, mask_border=True)
+            OpticalFlowLK.generate(txt_file, cached_flow, mask_egi=True)
 
-    optical_flow_thread = Thread(target=compute_flow)
-    optical_flow_thread.start()
+    if nproc != 1:
+        optical_flow_thread = Thread(target=compute_flow)
+        optical_flow_thread.start()
+    else:
+        compute_flow()
 
     # Compute detections and increment tracker
-    # boxes = performDetectOnTxtFile(txt_file, yolo, thresh, n_proc=-1)
-    boxes = Parser.parse_yolo_det_folder(os.path.join(save_dir, "cache/detections"), "/Users/louislac/Desktop/haricot_debug_montoldre_2")
+    boxes = performDetectOnTxtFile(txt_file, yolo, thresh, n_proc=nproc)
+    # boxes = Parser.parse_yolo_det_folder(
+    #     os.path.join(save_dir, "cache/detections"),
+    #     os.path.dirname(txt_file))
     boxes.getBoundingBoxByClass(keep)
     boxes = BoundingBoxes([box for box in boxes
         if box.centerIsIn([x_margin, y_margin, img_w - x_margin, img_h - y_margin])])
     boxes.save(save_dir=os.path.join(save_dir, "cache/detections"))
 
-    optical_flow_thread.join()
+    if nproc != 1:
+        optical_flow_thread.join()
+
     optical_flows = OpticalFlow.read(cached_flow)
 
     boxes_by_name = boxes.getBoxesBy(lambda box: box.getImageName())
@@ -138,7 +145,7 @@ def operose(txt_file, yolo, keep, thresh=0.25, save_dir="operose/"):
     boxes = box_association(boxes, images, optical_flows)
     boxes = BoundingBoxes([box for box in boxes
         if box.centerIsIn([x_margin, y_margin, img_w - x_margin, img_h - y_margin])])
-    boxes.drawAllCenters()
+    boxes.drawAllCenters("visus/")
 
     # Write stuff
     def inner(element):
@@ -165,7 +172,38 @@ def operose(txt_file, yolo, keep, thresh=0.25, save_dir="operose/"):
 
             xml_tree.save(save_dir)
 
-    Parallel(n_jobs=-1, verbose=10)(
+    Parallel(n_jobs=nproc, verbose=10)(
+        delayed(inner)(element) for element in boxes.getBoxesBy(lambda box: box.getImageName()).items())
+
+
+def operose_2(folder, keep, save_dir="~/Downloads/operose/", n_jobs=-1):
+    def inner(element):
+        (image, image_boxes) = element
+
+        image_name = os.path.basename(image)
+        (img_h, img_w) = cv.imread(image).shape[:2]
+        radius = int(5/100 * min(img_w, img_h) / 2)
+
+        xml_tree = XMLTree(image_name, width=img_w, height=img_h)
+
+        for box in image_boxes:
+            label = box.getClassId()
+            xml_tree.add_mask(label)
+
+            (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
+            rect = [int(x) - radius, int(y) - radius, int(x) + radius, int(y) + radius]
+
+            out_name = f"Bipbip_{os.path.splitext(image_name)[0]}_{xml_tree.plant_count-1}.png"
+
+            stem_mask = Image.new(mode="1", size=(img_w, img_h))
+            stem_mask.paste(Image.new(mode="1", size=(radius*2, radius*2), color=1), rect)
+            stem_mask.save(os.path.join(save_dir, out_name))
+
+            xml_tree.save(save_dir)
+
+    boxes = Parser.parse_yolo_det_folder(folder, folder, classes=[keep])
+
+    Parallel(n_jobs, verbose=10)(
         delayed(inner)(element) for element in boxes.getBoxesBy(lambda box: box.getImageName()).items())
 
 
@@ -184,61 +222,47 @@ def calibrate_folder(folder, save_dir="calibrated/", n_proc=-1):
     Parallel(n_jobs=n_proc, verbose=10)(delayed(calibrate_image)(image) for image in images)
 
 
-def create_image_list_file(folder, save_dir=None):
-    save_dir = save_dir if save_dir else folder
-    create_dir(save_dir)
-    images = sorted(files_with_extension(folder, ".jpg"))
-    with open(os.path.join(save_dir, "image_list.txt"), "w") as f:
-        for image in images:
-            f.write(image + "\n")
-
-
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("images_path", help="Path where images for detection are stored.")
-    parser.add_argument("save_dir", help="Directory to save masks and xml files.")
-    parser.add_argument("model", help="Directory containing cfg, data ans weights files.")
-    parser.add_argument("-l", action="append", dest="labels", help="Labels to keep. Default is all.")
-    parser.add_argument("-nproc", type=int, defalut=1, help="Number of proc to use to speed up inference. Default is 1. -1 for using all available procs.")
+    parser.add_argument("folder", help="Path where sequential images are stored.")
+    parser.add_argument("yolo_dir", help="Path where cfg, weights and data are stored.")
+    parser.add_argument("label", help="Label to keep.")
+
+    parser.add_argument("--thresh", "-t", default=0.25,
+        help="Confidence threshold for detection network.")
+    parser.add_argument("--save_dir", "-s", default="operose/")
+    parser.add_argument("--n_proc", "-j", default=1,
+        help="Number of processes to launch. Default is sequential. If out of memory error consider decreasing the number of proc used.")
+
     args = parser.parse_args()
 
-    image_path = os.path.join(args.images_path)
-    save_dir_operose = os.path.join(args.save_dir)
-    keep_challenge = args.labels
-    path = args.model
-    nproc = args.nproc
-
-    model_path  = glob.glob(os.path.join(path, "*.weights"))[0]
-    config_file = glob.glob(os.path.join(path, "*.cfg"))[0]
-    meta_path   = glob.glob(os.path.join(path, "*.data"))[0]
-    yolo_param  = {"model": model_path, "cfg": config_file, "obj": meta_path}
-
-    print()
-    print("PARAM USED: ")
-    print("Image directory: {}".format(image_path))
-    print("Save directory: {}".format(save_dir_operose))
-
-    if keep_challenge is None:
-        print("Labels to keep: all")
-    else:
-        print("Labels to keep: {}".format(keep_challenge))
-
-    print("Number of proc used: {}".format("all" if nproc == -1 else nproc))
-
-    print("Model in use: ")
-    print("  {}".format(model_path))
-    print("  {}".format(config_file))
-    print("  {}".format(meta_path))
-    print()
-
-    process_operose(image_path, yolo_param, plants_to_keep=keep_challenge, save_dir=save_dir_operose, nb_proc=nproc)
+    yolo = YoloModelPath(args.yolo_dir)
+    create_image_list_file(args.folder)
+    image_file = os.path.join(args.folder, "image_list.txt")
+    operose(image_file, yolo, args.label, args.thresh, args.save_dir, args.n_proc)
 
 
 if __name__ == "__main__":
-    # main()
-    # calibrate_folder("/Users/louislac/Downloads/test_operose")
-    yolo = YoloModelPath("results/yolov4-tiny_8/")
-    # folder = "/Users/louislac/Downloads/test_operose/"
-    folder = "/Users/louislac/Desktop/haricot_debug_montoldre_2/"
+    folders = [
+        "/media/deepwater/Samsung_T5/bipbip/bean_1",
+        "/media/deepwater/Samsung_T5/bipbip/bean_2",
+        "/media/deepwater/Samsung_T5/bipbip/bean_3",
+        "/media/deepwater/Samsung_T5/bipbip/maize",
+    ]
+
+    keeps = ["stem_bean", "stem_bean", "stem_bean", "stem_maize"]
+
+    for (folder, keep) in zip(folders, keeps):
+        create_dir("/media/deepwater/Samsung_T5/bipbip/operose/")
+        save_dir = os.path.join(
+            "/media/deepwater/Samsung_T5/bipbip/operose/",
+            os.path.relpath(folder, "/media/deepwater/Samsung_T5/bipbip/"))
+        create_dir(save_dir)
+        operose_2(folder, keep, save_dir)
+
+    # yolo = YoloModelPath("results/yolov4-tiny_8/")
+    # folder = folders[3]
+    # keep = "stem_maize"
     # create_image_list_file(folder)
-    operose(os.path.join(folder, "image_list.txt"), yolo, "haricot_tige")
+    # txt_file = os.path.join(folder, "image_list.txt")
+    # operose(txt_file, yolo, keep, thresh=0.25, save_dir="operose/", nproc=-1)

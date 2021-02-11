@@ -1,4 +1,5 @@
 # Created by Louis LAC 2019
+
 from collections import namedtuple, defaultdict
 from matplotlib.patches import Ellipse
 import matplotlib.transforms as transforms
@@ -23,6 +24,7 @@ from collections.abc import MutableSequence
 
 from reg_plane import fit_plane, reg_score, BivariateFunction, Equation
 import image_transform as imtf
+
 
 def confidence_ellipse(x, y, n_std=1):
     """
@@ -84,8 +86,8 @@ class Tracker:
         self.life_time += 1
         self.optical_flows.append(optical_flow)
 
-        print(f"Epoch: {self.life_time}")
-        print(f"Len dets: {len(detections)}, Len tracks: {len(self.tracks)}")
+        # print(f"Epoch: {self.life_time}")
+        # print(f"Len dets: {len(detections)}, Len tracks: {len(self.tracks)}")
         # print("OF: (x: {:.6}, y: {:.6})".format(self.acc_flow[0], self.acc_flow[1]))
 
         # Only get tracks that are in the current window
@@ -103,8 +105,8 @@ class Tracker:
         for (det_idx, trk_idk) in matches:
             self.tracks[trk_idk].append(moved_detections[det_idx])
 
-        print("unmatched dets: {}".format(unmatched_dets))
-        print("unmatched_tracks: {}".format(unmatched_tracks))
+        # print("unmatched dets: {}".format(unmatched_dets))
+        # print("unmatched_tracks: {}".format(unmatched_tracks))
 
         for det_idx in unmatched_dets:
             new_track = Track(history=[moved_detections[det_idx]])
@@ -121,7 +123,7 @@ class Tracker:
 
         min_image_size = min(detections[0].getImageSize())
         max_dist = self.dist_thresh * min_image_size
-        print(f"Min image size: {min_image_size}, Max dist: {max_dist} pixels")
+        # print(f"Min image size: {min_image_size}, Max dist: {max_dist} pixels")
 
         visited = [False for _ in range(len(tracks))]
         matches = []
@@ -157,7 +159,7 @@ class Tracker:
         unmatched_dets = [d for d in range(len(detections)) if d not in matches[:, 0] and d not in ignored]
         unmatched_tracks = [t for t in range(len(tracks)) if t not in matches[:, 1]]
 
-        print(matches)
+        # print(matches)
 
         return matches, np.array(unmatched_dets), np.array(unmatched_tracks)
 
@@ -169,15 +171,15 @@ class Tracker:
 
         min_image_size = min(detections[0].getImageSize())
         max_dist = self.dist_thresh * min_image_size
-        print(f"Min image size: {min_image_size}, Max dist: {max_dist} pixels")
+        # print(f"Min image size: {min_image_size}, Max dist: {max_dist} pixels")
 
         dist_matrix = np.array([[detection.distance(track) for track in tracks] for detection in detections])
         dist_matrix[dist_matrix >= max_dist] = np.finfo(float).max
 
         dets_indices, tracks_indices = linear_sum_assignment(dist_matrix)
 
-        print(dist_matrix)
-        print(dets_indices, tracks_indices)
+        # print(dist_matrix)
+        # print(dets_indices, tracks_indices)
 
         matches = np.array([[d, t] for (d, t) in zip(dets_indices, tracks_indices) if dist_matrix[d, t] < max_dist])
 
@@ -220,6 +222,7 @@ class Tracker:
 
     def __str__(self):
         return "\n".join([str(track) for track in self.tracks])
+
 
 class Track(MutableSequence):
     track_id = 0
@@ -277,7 +280,7 @@ class Track(MutableSequence):
         to_keep = int(to_keep * len(self.history))
         boxes = np.array([box.getAbsoluteBoundingBox(BBFormat.XYC) for box in self.history])
         coordinates = boxes[:, :2]
-        print(coordinates)
+        # print(coordinates)
         barycenter = coordinates.mean(axis=0)
         cov = np.cov(coordinates.transpose())
         inv_cov = np.linalg.inv(cov)
@@ -291,7 +294,7 @@ class Track(MutableSequence):
         filtered_boxes = boxes[filtered_indices]
         filtered_box = filtered_boxes.mean(axis=0)
 
-        print(barycenter - filtered_box[:2])
+        # print(barycenter - filtered_box[:2])
 
         ref_box = self.history[0]
         return BoundingBox(
@@ -319,11 +322,12 @@ class Track(MutableSequence):
             self.track_id, len(self), x, y, self.mean_confidence()
         )
 
+
 def gts_in_unique_ref(txt_file, folder, optical_flow, label):
     opt_flows = read_optical_flow(optical_flow)
-    print(opt_flows)
+    # print(opt_flows)
     acc_flow = np.cumsum(opt_flows, axis=0)
-    print(acc_flow)
+    # print(acc_flow)
 
     boxes = Parser.parse_yolo_gt_folder(folder, [label_to_number[label]])
     boxes.mapLabels(number_to_label)
@@ -345,6 +349,7 @@ def gts_in_unique_ref(txt_file, folder, optical_flow, label):
 
     return out_boxes
 
+
 def evaluate_aggr(detections, gts):
     """
     detections: detections for all successive images
@@ -355,6 +360,7 @@ def evaluate_aggr(detections, gts):
     image_names = gts.getNames()
     detections = BoundingBoxes([det for det in detections if det.getImageName() in gts.getNames()])
     Evaluator().printAPsByClass((detections + gts), thresh=7.5/100, method=EvaluationMethod.Distance)
+
 
 def associate_tracks_with_image(txt_file, optical_flow, tracker):
     images = read_image_txt_file(txt_file)
@@ -380,6 +386,7 @@ def associate_tracks_with_image(txt_file, optical_flow, tracker):
 
     return output
 
+
 def associate_boxes_with_image(txt_file, optical_flow, boxes):
     images = read_image_txt_file(txt_file)
     opt_flows = OpticalFlow.read(optical_flow)
@@ -402,6 +409,7 @@ def associate_boxes_with_image(txt_file, optical_flow, boxes):
 
     return out_boxes
 
+
 def box_association(boxes, images, opt_flows):
     (img_width, img_height) = image_size(images[0])
     out_boxes = BoundingBoxes()
@@ -422,13 +430,13 @@ def box_association(boxes, images, opt_flows):
 
     return out_boxes
 
+
 def move_gts_in_unique_ref(boxes, txt_file, opt_flow_file):
     images = read_image_txt_file(txt_file)
     flows = OpticalFlow.read(opt_flow_file)
     flows = [Function(
         fn1=lambda x, y, fl=flow[0]: fl,
-        fn2=lambda x, y, fl=flow[1]: fl) for flow in flows
-    ]
+        fn2=lambda x, y, fl=flow[1]: fl) for flow in flows]
 
     def deplacement_for_coord(x, y, flow):
         x0, y0 = x, y
@@ -447,6 +455,7 @@ def move_gts_in_unique_ref(boxes, txt_file, opt_flow_file):
             box._imageName = "No name"
 
     return boxes
+
 
 def optical_flow_visualisation(txt_file):
     images = []
@@ -487,12 +496,14 @@ def optical_flow_visualisation(txt_file):
     # plt.imshow(data)
     plt.show()
 
+
 def convert_to_grayscale(image):
     '''
     Convert an image (numpy array) to grayscale.
     '''
     frame = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
     return frame
+
 
 def optical_flow(image_1, image_2, prev_opt_flow=None):
     first_image = convert_to_grayscale(image_1)
@@ -518,6 +529,7 @@ def optical_flow(image_1, image_2, prev_opt_flow=None):
         flags=flag)
 
     return optical_flow, image_2
+
 
 def opt_flow_plane(txt_file):
     images = []
@@ -603,6 +615,7 @@ def opt_flow_plane(txt_file):
     with open("planar_opt_flow.txt", "w") as f:
         f.write(opt_flows)
 
+
 def get_border_mask(image_size):
     mask = np.full(image_size, True)
 
@@ -614,6 +627,7 @@ def get_border_mask(image_size):
 
     mask[ymin:ymax:, xmin:xmax] = False
     return ~mask
+
 
 def image_displacement(img1, img2, prev_opt_flow=None, masking_border=False, mask_egi=False):
     mask = np.full(img1.shape[:2], True)
@@ -633,6 +647,7 @@ def image_displacement(img1, img2, prev_opt_flow=None, masking_border=False, mas
     flow, _ = optical_flow(img1, img2, prev_opt_flow)
 
     return median_opt_flow(flow, mask), flow
+
 
 class OpticalFlow:
     def __init__(self, mask_border=False, mask_egi=False):
@@ -774,7 +789,7 @@ class OpticalFlow:
             current_image = cv.imread(image)
             dx, dy = ofCalc.displacement(current_image, past_image)
             line = f"{dx}, {dy}\n"
-            print("(dx: {:.4}, dy: {:.4})".format(dx, dy))
+            # print("(dx: {:.4}, dy: {:.4})".format(dx, dy))
             data += line
             past_image = current_image
 
@@ -794,7 +809,7 @@ class OpticalFlow:
             (xx, xy, x0) = eq_x.coeffs
             (yx, yy, y0) = eq_y.coeffs
             line = f"{xx}, {xy}, {x0}, {yx}, {yy}, {y0}\n"
-            print(line)
+            # print(line)
             data += line
             past_image = current_image
 
@@ -835,17 +850,18 @@ class OpticalFlow:
             y0 += vy
         return (x0 - x, y0 - y)
 
+
 class OpticalFlowLK:
     feature_params = {
-        "maxCorners": 150,
-        "qualityLevel": 0.5,
-        "minDistance": 32,
-        "blockSize": 32
+        "maxCorners": 1000,
+        "qualityLevel": 0.01,
+        "minDistance": 16,
+        "blockSize": 32,
     }
 
     lk_params = {
         "winSize": (16, 16),
-        "maxLevel": 3,
+        "maxLevel": 5,
     }
 
     def __init__(self):
@@ -853,6 +869,8 @@ class OpticalFlowLK:
         self.prev_dy = 0.0
 
     def __call__(self, prev, next, mask_egi=False, mask_border=False):
+        mask = None
+
         if mask_egi:
             mask = 255 - cv_egi_mask(next)
 
@@ -860,7 +878,7 @@ class OpticalFlowLK:
             (img_h, img_w) = prev.shape[:2]
             border_mask = np.full((img_h, img_w), 0, dtype=np.uint8)
             m_x, m_y = int(0.1 * img_w), int(0.1 * img_h)
-            border_mask[m_y:img_h-m_y, m_x:img_w-m_x] = 255
+            border_mask[m_y:img_h-m_y, 2*m_x:img_w-m_x] = 255
             mask = mask & border_mask if egi_mask else border_mask
 
         prev_gray = cv.cvtColor(prev, cv.COLOR_BGR2GRAY)
@@ -870,18 +888,48 @@ class OpticalFlowLK:
             mask=mask, **self.feature_params).astype(np.float32)
         p1_est = (p0 + [self.prev_dx, self.prev_dy]).astype(np.float32)
 
-        p1, st1, _ = cv.calcOpticalFlowPyrLK(prev_gray, next_gray, p0, p1_est,
+        # for p in p1_est.reshape(-1, 2):
+        #     cv.circle(next, center=(p[0], p[1]), radius=2, color=(255, 0, 0), thickness=-1)
+
+        p1, _, _ = cv.calcOpticalFlowPyrLK(prev_gray, next_gray, p0, p1_est,
             cv.OPTFLOW_USE_INITIAL_FLOW, **self.lk_params)
-        p0r, st2, _ = cv.calcOpticalFlowPyrLK(next_gray, prev_gray, p1,
+        p0r, _, _ = cv.calcOpticalFlowPyrLK(next_gray, prev_gray, p1,
             None, **self.lk_params)
 
-        # keep = st1 & st2 & (abs(p0r - p0) < 1.0).max(-1)
-        keep = (abs(p0r - p0) < 1.0).max(-1)
+        p0 = p0.reshape(-1, 2)
+        p0r = p0r.reshape(-1, 2)
+        p1 = p1.reshape(-1, 2)
 
-        t, _ = cv.estimateAffine2D(p1[keep == 1], p0[keep == 1])
-        self.prev_dx, self.prev_dy = t[0][2], t[1][2]
+        keep = (abs(p0r - p0) < 2).max(1)
+        p0_ok = p0[keep == 1]
+        p1_ok = p1[keep == 1]
+        v = (p1_ok - p0_ok)
+        (m_x, m_y) = np.median(v, axis=0)
+        ratio = 2.5
+        keep =  (v[..., 0] > m_x - ratio) & \
+            (v[..., 0] < m_x + ratio) & \
+            (v[..., 1] > m_y - ratio) & \
+            (v[..., 1] < m_y + ratio)
 
-        # self.prev_dx, self.prev_dy = (p0[keep == 1] - p1[keep == 1]).mean(0)
+        # for p in p0:
+        #     cv.circle(next, center=(p[0], p[1]), radius=2, color=(0, 0, 255), thickness=-1)
+        # for p in p1_ok[keep == 1]:
+        #     cv.circle(next, center=(p[0], p[1]), radius=2, color=(0, 255, 0), thickness=-1)
+        # for (p_1, p_2) in zip(p0_ok[keep == 1], p1_ok[keep == 1]):
+        #     cv.line(next,
+        #         (p_1[0], p_1[1]), (p_2[0], p_2[1]), color=(0, 255, 0), thickness=1)
+
+        # cv.imshow("image", next)
+        # key = cv.waitKey(1) & 0xFF
+        # if key == ord("q"): return
+
+        try:
+            t, _ = cv.estimateAffine2D(p0_ok[keep == 1], p1_ok[keep == 1])
+            self.prev_dx, self.prev_dy = t[0][2], t[1][2]
+        except:
+            print("Not enouth points to compute flow. Using old value.")
+
+        # print(self.prev_dx, self.prev_dy)
 
         return self.prev_dx, self.prev_dy
 
@@ -894,9 +942,8 @@ class OpticalFlowLK:
 
         for image in images[1:]:
             next = cv.imread(image)
-            dx, dy = opt_flow(prev, next, mask_egi, mask_border)
+            dx, dy = opt_flow(next, prev, mask_egi, mask_border)
             flows.append((dx, dy))
-            print("Flow: (dx: {:.6}, dy: {:.6})".format(dx, dy))
 
             prev = next
 
@@ -1462,9 +1509,10 @@ def another_optical_flow_test(txt_file,
 
         past_image = current_image
 
-def draw_tracked_confidence_ellipse(tracks_dict):
-    save_dir = "save/aggr_tracking_ellispe/"
+def draw_tracked_confidence_ellipse(tracks_dict, save_dir=None):
+    save_dir = "save/aggr_tracking_ellispe/" if not save_dir else save_dir
     create_dir(save_dir)
+    
     for (image, tracks) in tracks_dict.items():
         img = cv.imread(image)
 
@@ -1517,15 +1565,47 @@ def normalized_stem_boxes(boxes,
 
 	return normalized_boxes
 
-if __name__ == "__main__":
-    # get_perspective_dataset("/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2")
 
-    images = read_image_txt_file("data/haricot_sequential.txt")
-    create_dir("tmp/")
-    for image in images:
-        img = cv.imread(image)
-        img = egi_mask(img).astype(np.uint8) * 255
-        cv.imwrite(f"tmp/{os.path.basename(image)}", img)
+def create_image_list_file(folder, save_dir=None):
+    save_dir = save_dir if save_dir else folder
+    create_dir(save_dir)
+    images = sorted(files_with_extension(folder, ".jpg"))
+    with open(os.path.join(save_dir, "image_list.txt"), "w") as f:
+        for image in images:
+            f.write(image + "\n")
+
+
+if __name__ == "__main__":
+    # folder = "/home/deepwater/Downloads/operose_test_maize"
+    # folder = "/home/deepwater/Downloads/operose_test"
+    # folder="/media/deepwater/DATA/Shared/Louis/datasets/mais_debug_montoldre_2"
+    folder="/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2"
+
+    create_image_list_file(folder)
+
+    image_list_file = os.path.join(folder, "image_list.txt")
+    images = sorted(read_image_txt_file(image_list_file))
+
+    flow = OpticalFlowLK()
+    prev = cv.imread(images[0])
+    prev = cv.resize(prev, (512, 512))
+
+    for image in images[1:]:
+        next = cv.imread(image)
+        next = cv.resize(next, (512, 512))
+        (dx, dy) = flow(next, prev)
+        print(os.path.basename(image), dx, dy)
+
+        prev = next
+
+    # get_perspective_dataset("/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2")
+    #
+    # images = read_image_txt_file("data/haricot_sequential.txt")
+    # create_dir("tmp/")
+    # for image in images:
+    #     img = cv.imread(image)
+    #     img = egi_mask(img).astype(np.uint8) * 255
+    #     cv.imwrite(f"tmp/{os.path.basename(image)}", img)
 
     # another_optical_flow_test("data/haricot_debug_long_2.txt",
     #     name="data/test_opt_flow.txt", masking_border=True, mask_egi=True)

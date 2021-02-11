@@ -31,6 +31,10 @@ class BoundingBoxes(MutableSequence):
     def __add__(self, otherBoxes):
         return BoundingBoxes(self._boundingBoxes + otherBoxes._boundingBoxes)
 
+    def __iadd__(self, other):
+        self._boundingBoxes += other._boundingBoxes
+        return self
+
     def insert(self, index, box):
         self._boundingBoxes.insert(index, box)
 
@@ -41,7 +45,7 @@ class BoundingBoxes(MutableSequence):
         Returns:
             [str]: The sorted list of clas ids.
         """
-        return sorted(set([box.getClassId() for box in self]))
+        return sorted(set(box.getClassId() for box in self))
 
     def getNames(self):
         """
@@ -50,7 +54,7 @@ class BoundingBoxes(MutableSequence):
         Returns:
             [str]: The sorted list of image names.
         """
-        return sorted(set([box.getImageName() for box in self]))
+        return sorted(set(box.getImageName() for box in self))
 
     def getBoundingBoxesByType(self, bbType):
         return BoundingBoxes([d for d in self if d.getBBType() == bbType])
@@ -60,7 +64,7 @@ class BoundingBoxes(MutableSequence):
 
     def getBoundingBoxByClass(self, classId):
         if isinstance(classId, list):
-            return BoundingBoxes([bb for bb in self if bb.getClassId() in classId])
+            return BoundingBoxes([bb for bb in self if bb.getClassId() in set(classId)])
         else:
             return BoundingBoxes([bb for bb in self if bb.getClassId() == classId])
 
@@ -321,25 +325,25 @@ class BoundingBoxes(MutableSequence):
 
         Parallel(n_jobs=-1, verbose=10)(delayed(self.drawImage)(name, sd) for (name, sd) in zip(names, save_dir))
 
-    def drawImageCenter(self, name, save_dir="annotated_images/"):
+    def drawAllCenters(self, save_dir, n_jobs=-1):
+        def inner(element):
+            (image_name, image_boxes) = element
+            image = cv.imread(image_name)
+            save_name = os.path.join(save_dir, os.path.basename(image_name))
+
+            for box in image_boxes:
+                (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
+                label = box.getClassId()
+                color = (0, 255, 0) if box.getBBType() == BBType.GroundTruth else (0, 0, 255)
+
+                cv.circle(image, (int(x), int(y)), 5, color, thickness=cv.FILLED)
+
+            cv.imwrite(save_name, image)
+
         create_dir(save_dir)
-        save_name = os.path.join(save_dir, os.path.basename(name))
-        image = cv.imread(name)
-        for box in self.getBoundingBoxesByImageName(name):
-            (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
-            label = box.getClassId()
-            color = (0, 255, 0) if box.getBBType() == BBType.GroundTruth else (0, 0, 255)
-
-            cv.circle(image, (int(x), int(y)), 5, color, thickness=cv.FILLED)
-
-        cv.imwrite(save_name, image)
-
-    def drawAllCenters(self, save_dir="annotated_images/"):
-        names = self.getNames()
-        save_dir = [save_dir for _ in range(len(names))]
-
-        Parallel(n_jobs=-1, verbose=10)(
-            delayed(self.drawImageCenter)(name, sd) for (name, sd) in zip(names, save_dir)
+        boxes = self.getBoxesBy(lambda box: box.getImageName())
+        Parallel(n_jobs, verbose=10)(
+            delayed(inner)(element) for element in boxes.items()
         )
 
     def erase_image_names(self):

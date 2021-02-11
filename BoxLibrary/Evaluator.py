@@ -11,9 +11,6 @@ from .utils import *
 class Evaluator:
     cocoThresholds = [thresh / 100 for thresh in range(50, 100, 5)]
 
-    # def __init__(self):
-    #     self.metrics = []
-
     def GetPascalVOCMetrics(self, boxes, thresh=0.5, method=EvaluationMethod.IoU):
         ret = {}
         boxesByLabels = dictGrouping(boxes, key=lambda box: box.getClassId())
@@ -90,8 +87,6 @@ class Evaluator:
                 "recall": rec,
                 "AP": ap,
                 "threshold": thresh,
-                # "interpolated precision": mpre,
-                # "interpolated recall": mrec,
                 "total positives": npos,
                 "total detections": len(TP),
                 "total TP": total_tp,
@@ -129,6 +124,7 @@ class Evaluator:
         metrics = self.GetPascalVOCMetrics(boxes, thresh, method)
         tot_tp, tot_fp, tot_npos, accuracy = 0, 0, 0, 0
         print("AP@{} by class:".format(thresh))
+
         for (label, metric) in metrics.items():
             AP = metric["AP"]
             totalPositive = metric["total positives"]
@@ -149,6 +145,8 @@ class Evaluator:
 
         print("Global stats: ")
         print("  recall: {:.2%}, precision: {:.2%}, f1: {:.2%}, acc: {:.2%}".format(recall, precision, f1, accuracy))
+
+        return (recall, precision, f1)
 
     def PlotPrecisionRecallCurve(self,
                                  boundingBoxes,
