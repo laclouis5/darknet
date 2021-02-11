@@ -870,7 +870,7 @@ class OpticalFlowLK:
 
     def __call__(self, prev, next, mask_egi=False, mask_border=False):
         mask = None
-
+        
         if mask_egi:
             mask = 255 - cv_egi_mask(next)
 
