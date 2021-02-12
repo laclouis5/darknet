@@ -1604,6 +1604,7 @@ if __name__ == "__main__":
     # FILTERING EVALUATION
     # gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
     gts = Parser.parse_json_folder(bean_2_folder, classes={"stem_bean"})
+    image_names = gts.getNames()
     # gts.mapLabels(fr_to_en)
     boxes = Parser.parse_yolo_det_folder("save/stem_bean_2_aggr/",
         img_folder=bean_2_folder,
@@ -1611,13 +1612,13 @@ if __name__ == "__main__":
     # boxes.mapLabels({"bean": "stem_bean"})
     tracker = detect_and_track_aggr_2(boxes, bean_2_img_list, bean_2_optflow,
         conf_thresh=25/100, min_points=13, dist_thresh=6/100, verbose=True)
-    tracks = associate_tracks_with_image(bean_2_img_list, bean_2_optflow, tracker)
-    tracks = {k: v for (k, v) in tracks.items() if k in gts.getNames()}
-    draw_tracked_confidence_ellipse(tracks, "save/tmp/")
+    # tracks = associate_tracks_with_image(bean_2_img_list, bean_2_optflow, tracker)
+    # tracks = {k: v for (k, v) in tracks.items() if k in image_names}
+    # draw_tracked_confidence_ellipse(tracks, "save/tmp/")
     dets = tracker.get_filtered_boxes()
     dets = associate_boxes_with_image(bean_2_img_list, bean_2_optflow, dets)
     dets = BoundingBoxes([det for det in dets
-        if det.getImageName() in gts.getNames()
+        if det.getImageName() in image_names
         # and det.centerIsIn([32, 32, 600, 600])  # For (632, 632)
         and det.centerIsIn([50, 35, 974, 733])  # For (1024, 768)
     ])
@@ -1630,13 +1631,14 @@ if __name__ == "__main__":
     # WITHOUT FILTERING EVALUATION
     # # gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
     # gts = Parser.parse_json_folder(bean_2_folder, classes={"stem_bean"})
+    # image_names = gts.getNames()
     # # gts.mapLabels(fr_to_en)
     # boxes = Parser.parse_yolo_det_folder("save/stem_bean_2_aggr/",
     #     img_folder=bean_2_folder,
     #     classes=["stem_bean"])
     # # boxes.mapLabels({"bean": "stem_bean"})
     # dets = BoundingBoxes([det for det in boxes
-    #     if det.getImageName() in gts.getNames()
+    #     if det.getImageName() in image_names
     #     # and det.centerIsIn([32, 32, 600, 600])
     #     and det.centerIsIn([50, 35, 974, 733])  # For (1024, 768)
     # ])

@@ -28,84 +28,57 @@ import image_transform as imtf
 from tqdm.contrib import tenumerate
 from tqdm import tqdm
 
-
-def confidence_ellipse(x, y, n_std=1):
-    """
-    Returns the confidence ellipse for 2 correlated distributions up
-    to some confidence n * sigma.
-
-    Params:
-    - x (1D array): first distribution
-    - y (1D array): secon distribution
-    - n_std (int): confidence as `n * sigma`
-
-    Returns:
-    - (x, y): center of the ellipse
-    - (w, h): width and height of the ellipse
-    - angle: inclinaison of the ellispe
-    """
-    def eigsorted(cov):
-        vals, vecs = np.linalg.eigh(cov)
-        order = vals.argsort()[::-1]
-        return vals[order], vecs[:, order]
-
-    covariance = np.cov(x, y)
-    eig_vals, eig_vects = eigsorted(covariance)
-    eig_vals = np.maximum(0, eig_vals)
-
-    (ex, ey) = np.mean(x), np.mean(y)
-    # (w, h) = 2 * n_std * np.sqrt(eig_vals)
-    q = 2 * stats.norm.cdf(n_std) - 1
-    r2 = stats.chi2.ppf(q, 2)
-    (w, h) = 2 * np.sqrt(eig_vals * r2)
-
-    # r = stats.f.ppf(0.95, 2, len(x) - 2) * 2 / (len(x) - 2)  # Rajouter facteur !!!
-    # (w, h) = np.sqrt(eig_vals * r)  # demi-grand axe
-
-    angle = np.degrees(np.arctan2(*eig_vects[:, 0][::-1]))
-
-    return (ex, ey, w, h, angle)
-
-def get_correlated_dataset(n, dependency, mu, scale):
-    latent = np.random.randn(n, 2)
-    dependent = latent.dot(dependency)
-    scaled = dependent * scale
-    scaled_with_offset = scaled + mu
-    # return x and y of the new, correlated dataset
-    return scaled_with_offset[:, 0], scaled_with_offset[:, 1]
+from functools import reduce
 
 class Tracker:
-    # Can add: if box touches image border remove it
-    # Can change distance threshold to be adatative
+
     def __init__(self, min_confidence, min_points, dist_thresh):
         self.min_points = min_points
         self.min_confidence = min_confidence
         self.dist_thresh = dist_thresh
         self.tracks = []
+        self.inactive_tracks = []
         self.optical_flows = []
         self.life_time = 0
+        self._ox = 0.0
+        self._oy = 0.0
 
     def update(self, detections, optical_flow):
         self.life_time += 1
         self.optical_flows.append(optical_flow)
+        (nx, ny) = optical_flow(0.0, 0.0)
+        self._ox += nx
+        self._oy += ny
 
-        # Only get tracks that are in the current window
         tracked_boxes = self.get_all_boxes()
         moved_detections = BoundingBoxes()
 
         for det in detections:
             (x, y, _, _) = det.getAbsoluteBoundingBox(BBFormat.XYC)
-            (mx, my) = OpticalFlow.traverse_backward(self.optical_flows, x, y)
-            moved_detections.append(det.movedBy(mx, my))
+            # (mx, my) = OpticalFlow.traverse_backward(self.optical_flows, x, y)
+            # moved_detections.append(det.movedBy(mx, my))
+            moved_detections.append(det.movedBy(self._ox, self._oy))
 
         matches, unmatched_dets, unmatched_tracks = self.coco_assignement(moved_detections, tracked_boxes)
 
-        for (det_idx, trk_idk) in matches:
-            self.tracks[trk_idk].append(moved_detections[det_idx])
+        # Tracked that are matched, are active
+        for (det_idx, trk_idx) in matches:
+            self.tracks[trk_idx].append(moved_detections[det_idx])
+            self.tracks[trk_idx].epochs_without_update = 0
 
+        # New track, is active
         for det_idx in unmatched_dets:
             new_track = Track(history=[moved_detections[det_idx]])
             self.tracks.append(new_track)
+
+        # Unmatched tracks, may be removed if inactive
+        for trk_idx in unmatched_tracks:
+            self.tracks[trk_idx].epochs_without_update += 1
+
+        # Do something with inactive tracks
+        for trk_idx in reversed(range(len(self.tracks))):
+            if self.tracks[trk_idx].epochs_without_update > 30:
+                self.inactive_tracks.append(self.tracks.pop(trk_idx))
 
     def coco_assignement(self, detections, tracks):
         """
@@ -121,7 +94,7 @@ class Tracker:
 
         visited = [False for _ in range(len(tracks))]
         matches = []
-        ignored = []
+        ignored = set()
 
         detections = sorted(enumerate(detections),
             key=lambda element: element[1].getConfidence(),
@@ -143,7 +116,7 @@ class Tracker:
                     visited[j_min_distance] = True
                     matches.append([i, j_min_distance])
                 else:
-                    ignored.append(i)
+                    ignored.add(i)
 
         if len(matches) == 0:
             matches = np.empty((0, 2), dtype=int)
@@ -183,33 +156,33 @@ class Tracker:
         return [track.barycenter_box() for track in self.tracks]
 
     def get_filtered_boxes(self):
-        filtered_boxes = [track.barycenter_box() for track in self.tracks
+        filtered_boxes = [track.barycenter_box() for track in (self.tracks + self.inactive_tracks)
             if track.mean_confidence() > self.min_confidence
             and len(track) > self.min_points
         ]
         return BoundingBoxes(filtered_boxes)
 
     def get_mahal_filtered_boxes(self):
-        return BoundingBoxes([track.robust_barycenter() for track in self.tracks
+        return BoundingBoxes([track.robust_barycenter() for track in (self.tracks + self.inactive_tracks)
             if track.mean_confidence() > self.min_confidence
             and len(track) > self.min_points
         ])
 
     def get_filtered_tracks(self):
-        return [track for track in self.tracks
+        return [track for track in (self.tracks + self.inactive_tracks)
             if track.mean_confidence() > self.min_confidence
             and len(track) > self.min_points]
 
     def print_stats_for_tracks(self, tracks=None):
         if tracks is None:
-            tracks = self.tracks
+            tracks = (self.tracks, self.inactive_tracks)
 
         for track in tracks:
             (x, y, _, _) = track.barycenter_box().getAbsoluteBoundingBox(format=BBFormat.XYC)
             print("Track {}: len: {}, pos: (x: {:.6}, y: {:.6}), conf: {:.6}".format(track.track_id, len(track), x, y, track.mean_confidence()))
 
-    def __str__(self):
-        return "\n".join([str(track) for track in self.tracks])
+    def __repr__(self):
+        return "\n".join(f"{track}" for track in self.tracks)
 
 
 class Track(MutableSequence):
@@ -217,7 +190,9 @@ class Track(MutableSequence):
 
     def __init__(self, history=None):
         self.track_id = Track.track_id
+        self.epochs_without_update = 0
         self.history = history if history else BoundingBoxes()
+
         Track.track_id += 1
 
     def __len__(self):
@@ -236,21 +211,28 @@ class Track(MutableSequence):
         self.history.insert(index, item)
 
     def mean_confidence(self):
-        confidences = np.array([box.getConfidence() for box in self.history])
-        return confidences.mean()
+        nb_boxes = len(self.history)
+        assert  nb_boxes > 0, "Track is empty, cannot compute mean confidence"
+        return reduce(lambda acc, box: acc + box.getConfidence(), self.history, 0.0) / nb_boxes
 
     def barycenter_box(self):
-        assert len(self.history) > 0, "Track is empty, cannot compute barycenter"
-
-        boxes = np.array([box.getAbsoluteBoundingBox(BBFormat.XYC) for box in self.history])
-        box = boxes.mean(axis=0)
-
+        nb_boxes = len(self.history)
+        assert nb_boxes > 0, "Track is empty, cannot compute barycenter"
+        
+        m_x, m_y, m_w, m_h = 0.0, 0.0, 0.0, 0.0
         ref_box = self.history[0]
+
+        for box in self.history:
+            (x, y, w, h) = box.getAbsoluteBoundingBox(BBFormat.XYC)
+            m_x += x
+            m_y += y
+            m_w += w
+            m_h += h
 
         return BoundingBox(
             imageName="No name",
             classId=ref_box.getClassId(),
-            x=box[0], y=box[1], w=box[2], h=box[3],
+            x=m_x/nb_boxes, y=m_y/nb_boxes, w=m_w/nb_boxes, h=m_h/nb_boxes,
             typeCoordinates=CoordinatesType.Absolute,
             imgSize=ref_box.getImageSize(),
             bbType=ref_box.getBBType(),
@@ -298,51 +280,12 @@ class Track(MutableSequence):
         return confidence_ellipse(x, y, n_std)
 
     def movedBy(self, dx, dy):
-        boxes = [box.movedBy(dx, dy) for box in self.history]
-        return Track(history=boxes)
+        return Track(history=[box.movedBy(dx, dy) for box in self.history])
 
-    def __str__(self):
+    def __repr__(self):
         (x, y, _, _) = self.barycenter_box().getAbsoluteBoundingBox(BBFormat.XYC)
         return "Id: {}, len: {}, pos: (x: {:.6}, y: {:.6}), conf.: {:.4}".format(
-            self.track_id, len(self), x, y, self.mean_confidence()
-        )
-
-
-def gts_in_unique_ref(txt_file, folder, optical_flow, label):
-    opt_flows = read_optical_flow(optical_flow)
-    acc_flow = np.cumsum(opt_flows, axis=0)
-
-    boxes = Parser.parse_yolo_gt_folder(folder, [label_to_number[label]])
-    boxes.mapLabels(number_to_label)
-
-    # boxes = Parser.parse_xml_folder(folder, ["mais_tige"])
-    # boxes.mapLabels({"mais_tige": label})
-
-    out_boxes = BoundingBoxes()
-
-    images = []
-    with open(txt_file, "r") as f:
-        images = [c.strip() for c in f.readlines()]
-
-    for i, image in enumerate(images[:1000]):
-        (dx, dy) = acc_flow[i, :]
-        label_boxes = boxes.getBoundingBoxesByImageName(image)
-
-        out_boxes += label_boxes.movedBy(-dx, -dy)
-
-    return out_boxes
-
-
-def evaluate_aggr(detections, gts):
-    """
-    detections: detections for all successive images
-    gts: ground truths for selected images
-    """
-
-    # Filter detections
-    image_names = gts.getNames()
-    detections = BoundingBoxes([det for det in detections if det.getImageName() in gts.getNames()])
-    Evaluator().printAPsByClass((detections + gts), thresh=7.5/100, method=EvaluationMethod.Distance)
+            self.track_id, len(self), x, y, self.mean_confidence())
 
 
 def associate_tracks_with_image(txt_file, optical_flow, tracker):
@@ -391,6 +334,89 @@ def associate_boxes_with_image(txt_file, optical_flow, boxes):
             out_boxes.append(BoundingBox(imageName=image, classId=box.getClassId(), x=x, y=y, w=w, h=h, imgSize=box.getImageSize(), bbType=BBType.Detected, classConfidence=box.getConfidence()))
 
     return out_boxes
+
+
+def gts_in_unique_ref(txt_file, folder, optical_flow, label):
+    opt_flows = read_optical_flow(optical_flow)
+    acc_flow = np.cumsum(opt_flows, axis=0)
+
+    boxes = Parser.parse_yolo_gt_folder(folder, [label_to_number[label]])
+    boxes.mapLabels(number_to_label)
+
+    # boxes = Parser.parse_xml_folder(folder, ["mais_tige"])
+    # boxes.mapLabels({"mais_tige": label})
+
+    out_boxes = BoundingBoxes()
+
+    images = []
+    with open(txt_file, "r") as f:
+        images = [c.strip() for c in f.readlines()]
+
+    for i, image in enumerate(images[:1000]):
+        (dx, dy) = acc_flow[i, :]
+        label_boxes = boxes.getBoundingBoxesByImageName(image)
+
+        out_boxes += label_boxes.movedBy(-dx, -dy)
+
+    return out_boxes
+
+
+def evaluate_aggr(detections, gts):
+    """
+    detections: detections for all successive images
+    gts: ground truths for selected images
+    """
+
+    # Filter detections
+    image_names = gts.getNames()
+    detections = BoundingBoxes([det for det in detections if det.getImageName() in gts.getNames()])
+    Evaluator().printAPsByClass((detections + gts), thresh=7.5/100, method=EvaluationMethod.Distance)
+
+
+def confidence_ellipse(x, y, n_std=1):
+    """
+    Returns the confidence ellipse for 2 correlated distributions up
+    to some confidence n * sigma.
+
+    Params:
+    - x (1D array): first distribution
+    - y (1D array): secon distribution
+    - n_std (int): confidence as `n * sigma`
+
+    Returns:
+    - (x, y): center of the ellipse
+    - (w, h): width and height of the ellipse
+    - angle: inclinaison of the ellispe
+    """
+    def eigsorted(cov):
+        vals, vecs = np.linalg.eigh(cov)
+        order = vals.argsort()[::-1]
+        return vals[order], vecs[:, order]
+
+    covariance = np.cov(x, y)
+    eig_vals, eig_vects = eigsorted(covariance)
+    eig_vals = np.maximum(0, eig_vals)
+
+    (ex, ey) = np.mean(x), np.mean(y)
+    # (w, h) = 2 * n_std * np.sqrt(eig_vals)
+    q = 2 * stats.norm.cdf(n_std) - 1
+    r2 = stats.chi2.ppf(q, 2)
+    (w, h) = 2 * np.sqrt(eig_vals * r2)
+
+    # r = stats.f.ppf(0.95, 2, len(x) - 2) * 2 / (len(x) - 2)  # Rajouter facteur !!!
+    # (w, h) = np.sqrt(eig_vals * r)  # demi-grand axe
+
+    angle = np.degrees(np.arctan2(*eig_vects[:, 0][::-1]))
+
+    return (ex, ey, w, h, angle)
+
+def get_correlated_dataset(n, dependency, mu, scale):
+    latent = np.random.randn(n, 2)
+    dependent = latent.dot(dependency)
+    scaled = dependent * scale
+    scaled_with_offset = scaled + mu
+    # return x and y of the new, correlated dataset
+    return scaled_with_offset[:, 0], scaled_with_offset[:, 1]
 
 
 def box_association(boxes, images, opt_flows):
