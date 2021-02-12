@@ -6,7 +6,64 @@ import lxml.etree as ET
 import PIL
 import json
 
+
 class Parser:
+    
+    @staticmethod
+    def parse_json_directories(directories, classes=None):
+        boxes = BoundingBoxes()
+        for directory in directories:
+            boxes += Parser.parse_json_folder(directory, classes)
+        return boxes
+
+    @staticmethod
+    def parse_json_folder(folder, classes=None):
+        boxes = BoundingBoxes()
+        for file in files_with_extension(folder, ".json"):
+            boxes += Parser.parse_json_file(file, classes)
+        return boxes
+
+    @staticmethod
+    def parse_json_file(file, classes=None):
+        data = json.load(open(file))
+        image_path = data["image_path"]
+        (img_w, img_h) = PIL.Image.open(image_path).size
+        stem_size = min(img_w, img_h) * 7.5/100
+        boxes = BoundingBoxes()
+
+        for obj in data["objects"]:
+            label = obj["label"]
+
+            if (classes is None) or (classes and (label in classes)):
+                box = obj["box"]
+                x_min, y_min, x_max, y_max = float(box["x_min"]), float(box["y_min"]), float(box["x_max"]), float(box["y_max"])
+                confidence = obj.get("confidence", None)
+                bb_type = BBType.Detected if confidence else BBType.GroundTruth
+
+                boxes.append(BoundingBox(
+                    image_path, str(label),
+                    x_min, y_min, x_max, y_max,
+                    format=BBFormat.XYX2Y2, imgSize=(img_w, img_h),
+                    bbType=bb_type, classConfidence=confidence))
+
+            for part in obj["parts"]:
+                part_label = part["kind"]
+                kind = f"{part_label}_{label}"
+
+                if (classes is None) or (classes and (kind in classes)):
+                    location = part["location"]
+                    x, y = float(location["x"]), float(location["y"])
+                    confidence = part.get("confidence", None)
+                    bb_type = BBType.Detected if confidence else BBType.GroundTruth
+
+                    boxes.append(BoundingBox(
+                        image_path, kind, 
+                        x, y, stem_size, stem_size, 
+                        format=BBFormat.XYC, imgSize=(img_w, img_h),
+                        bbType=bb_type, classConfidence=confidence))
+
+        return boxes
+
     @staticmethod
     def parse_xml_directories(directories, classes=None):
         boxes = BoundingBoxes()
@@ -144,10 +201,11 @@ class Parser:
 
         for detection in detections:
             (label, confidence, box) = detection
-            (x, y, w, h) = box
 
-            if classes and label not in classes:
+            if classes and (label not in classes):
                 continue
+            
+            (x, y, w, h) = box
 
             box = BoundingBox(imageName=image_name, classId=label, x=x, y=y, w=w, h=h, classConfidence=confidence, typeCoordinates=CoordinatesType.Absolute, format=BBFormat.XYC, imgSize=img_size, bbType=BBType.Detected)
             boxes.append(box)

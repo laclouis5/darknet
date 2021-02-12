@@ -577,22 +577,19 @@ def save_yolo_detections(network, file_dir, save_dir="", bbCoords=CoordinatesTyp
 
     boxes.save(bbCoords, bbFormat, save_dir)
 
-def performDetectOnFolder(network, directory, conf_thresh=0.5/100, n_proc=1):
+
+def performDetectOnFolder(network, directory, conf_thresh=0.5/100):
     """
     Do not use parallel processing when using GPU.
     """
     (cfg, model, obj) = network.get_cfg_weight_meta()
     images = files_with_extension(directory, ".jpg")
+    boxes = BoundingBoxes()
 
-    def detect(image):
+    for image in tqdm(images, desc="Inference", unit="image"):
         img_size = image_size(image)
-        detections = performDetect(image,
-            thresh=conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
-        boxes = Parser.parse_yolo_darknet_detections(detections, image, img_size)
-        return boxes
-
-    boxes = Parallel(n_jobs=n_proc, verbose=10)(delayed(detect)(image) for image in images)
-    boxes = BoundingBoxes([box for wrapped in boxes for box in wrapped])
+        detections = performDetect(image, conf_thresh, configPath=cfg, weightPath=model, metaPath=obj, showImage=False)
+        boxes += Parser.parse_yolo_darknet_detections(detections, image, img_size)
 
     return boxes
 
@@ -709,8 +706,8 @@ def drawConstellation(txt_file, nb_samples=10, offset=0):
     plt.show()
 
 def drawConstellationFlat(txt_file, folder, opt_flow, label):
-    # flows = OpticalFlow.read(opt_flow)  # Std way
-    flows = OpticalFlow.read_planes("data/optflow_haricot_seq_plane.txt")  # Plane way
+    flows = OpticalFlow.read(opt_flow)  # Std way
+    # flows = OpticalFlow.read_planes("data/optflow_haricot_seq_plane.txt")  # Plane way
 
     boxes = Parser.parse_xml_folder(folder, classes=[label])
     images = read_image_txt_file(txt_file)
@@ -741,8 +738,9 @@ def drawConstellationFlatBoxes(txt_file, boxes, folder, opt_flow, label):
     boxes = boxes.getBoundingBoxByClass(label)
 
     # Init stuff and main loop
+    boxes_by_name = boxes.getBoxesBy(lambda box: box.getImageName())
     for (i, image) in enumerate(images):
-        image_boxes = boxes.getBoundingBoxesByImageName(image)
+        image_boxes = boxes_by_name[image]
         for box in image_boxes:
             (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
             (dx, dy) = OpticalFlow.traverse_backward(flows[:i+1], x, y)
@@ -1480,9 +1478,9 @@ if __name__ == "__main__":
     # bean_seq_folder = "/media/deepwater/DATA/Shared/Louis/datasets/haricot_montoldre_sequential"
     # bean_seq_flow = "data/optflow_haricot_seq.txt"
 
-    # maize_demo = "data/demo_mais.txt"
-    # maize_demo_folder = "data/demo_mais"
-    # maize_demo_opt_flow = "data/opt_flow_demo_mais.txt"
+    bean_2_folder = "/media/deepwater/DATA/Shared/Louis/datasets/tache_detection/haricot"
+    bean_2_img_list = os.path.join(bean_2_folder, "image_list.txt")
+    bean_2_optflow = os.path.join(bean_2_folder, "optical_flow.txt")
 
     # YOLO V3
     # model_path = "results/yolov3-tiny_3l_14"  # BDD 4.2
@@ -1600,50 +1598,52 @@ if __name__ == "__main__":
     # drawConstellationFlat(maize_long, maize_long_folder, maize_opt_flow, en_to_fr["stem_maize"])
 
     # SAVE DARKNET DETECTION TO FILES
-    # boxes = performDetectOnFolder(yolo, maize_long_folder, conf_thresh=25/100)
-    # boxes.save(
-    #     type_coordinates=CoordinatesType.Relative,
-    #     save_dir="save/stem_maize_aggr/")
+    # boxes = performDetectOnFolder(yolo, bean_2_folder, conf_thresh=25/100)
+    # boxes.save(type_coordinates=CoordinatesType.Relative, save_dir="save/_tmp/")
 
     # FILTERING EVALUATION
-    gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
-    gts.mapLabels(fr_to_en)
-    boxes = Parser.parse_yolo_det_folder("save/stem_bean_aggr/",
-        img_folder=bean_long_folder,
+    # gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
+    gts = Parser.parse_json_folder(bean_2_folder, classes={"stem_bean"})
+    # gts.mapLabels(fr_to_en)
+    boxes = Parser.parse_yolo_det_folder("save/stem_bean_2_aggr/",
+        img_folder=bean_2_folder,
         classes=["stem_bean"])
     # boxes.mapLabels({"bean": "stem_bean"})
-    tracker = detect_and_track_aggr_2(boxes, bean_long, bean_opt_flow,
+    tracker = detect_and_track_aggr_2(boxes, bean_2_img_list, bean_2_optflow,
         conf_thresh=25/100, min_points=13, dist_thresh=6/100, verbose=True)
-    # tracks = associate_tracks_with_image(bean_long, bean_opt_flow, tracker)
-    # tracks = {k: v for (k, v) in tracks.items() if k in gts.getNames()}
-    # draw_tracked_confidence_ellipse(tracks, "save/aggr_tracking_ellispe_new_2/")
+    tracks = associate_tracks_with_image(bean_2_img_list, bean_2_optflow, tracker)
+    tracks = {k: v for (k, v) in tracks.items() if k in gts.getNames()}
+    draw_tracked_confidence_ellipse(tracks, "save/tmp/")
     dets = tracker.get_filtered_boxes()
-    dets = associate_boxes_with_image(bean_long, bean_opt_flow, dets)
+    dets = associate_boxes_with_image(bean_2_img_list, bean_2_optflow, dets)
     dets = BoundingBoxes([det for det in dets
         if det.getImageName() in gts.getNames()
-        and det.centerIsIn([32, 32, 600, 600])
+        # and det.centerIsIn([32, 32, 600, 600])  # For (632, 632)
+        and det.centerIsIn([50, 35, 974, 733])  # For (1024, 768)
     ])
     Evaluator().printAPsByClass((dets + gts),
         thresh=5/100,
         method=EvaluationMethod.Distance)
-    # dets.drawAllCenters(save_dir="save/a_1/")
+    # dets.drawAllCenters(save_dir="save/a_2/")
     # gts.drawAllCenters("save/a_2")
 
     # WITHOUT FILTERING EVALUATION
-    gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
-    gts.mapLabels(fr_to_en)
-    boxes = Parser.parse_yolo_det_folder("save/stem_bean_aggr/",
-        img_folder=bean_long_folder,
-        classes=["stem_bean"])
-    # boxes.mapLabels({"bean": "stem_bean"})
-    dets = BoundingBoxes([det for det in boxes
-        if det.getImageName() in gts.getNames()
-        and det.centerIsIn([32, 32, 600, 600])
-    ])
-    Evaluator().printAPsByClass((dets + gts),
-        thresh=5/100,
-        method=EvaluationMethod.Distance)
-    # dets.drawAllCenters("save/tmp")
+    # # gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
+    # gts = Parser.parse_json_folder(bean_2_folder, classes={"stem_bean"})
+    # # gts.mapLabels(fr_to_en)
+    # boxes = Parser.parse_yolo_det_folder("save/stem_bean_2_aggr/",
+    #     img_folder=bean_2_folder,
+    #     classes=["stem_bean"])
+    # # boxes.mapLabels({"bean": "stem_bean"})
+    # dets = BoundingBoxes([det for det in boxes
+    #     if det.getImageName() in gts.getNames()
+    #     # and det.centerIsIn([32, 32, 600, 600])
+    #     and det.centerIsIn([50, 35, 974, 733])  # For (1024, 768)
+    # ])
+    # Evaluator().printAPsByClass((dets + gts),
+    #     thresh=5/100,
+    #     method=EvaluationMethod.Distance)
+    # # dets.drawAllCenters("save/tmp")
 
     # GRID SEARCH TEST
     # gts = Parser.parse_xml_folder(maize_long_folder, [en_to_fr["stem_maize"]])
@@ -1679,6 +1679,10 @@ if __name__ == "__main__":
     
     # with open("save/aggr_grid_search_maize_new.csv", "w") as f:
     #     f.write(out)
+
+    # DRAW CONSTELLATIONS
+    # boxes = Parser.parse_json_folder(bean_2_folder, classes={"stem_bean"})
+    # drawConstellationFlatBoxes(bean_2_img_list, boxes, bean_2_folder, bean_2_optflow, "stem_bean")
 
     # # boxes_std = performDetectOnFolder(yolo, maize_long_folder, conf_thresh=0.25)
     # # boxes_std = BoundingBoxes([box for box in boxes_std if box.getImageName() in gts.getNames() and box.getClassId() == "stem_maize"])

@@ -78,13 +78,15 @@ class BoundingBox:
                 self._y2 = h
                 self._w = self._x2 - self._x
                 self._h = self._y2 - self._y
-            else:
+            elif format == BBFormat.XYC:
                 self._w = w
                 self._h = h
                 self._x = x - self._w / 2.0
                 self._y = y - self._h / 2.0
                 self._x2 = x + self._w / 2.0
                 self._y2 = y + self._h / 2.0
+            else:
+                raise IOError(f"BBFormat '{format}' not defined.")
 
         if imgSize is None:
             self._width_img = None
@@ -366,16 +368,14 @@ class BoundingBox:
             format = self._format
 
         if type_coordinates == CoordinatesType.Relative:
-            bbox = self.getRelativeBoundingBox()
+            box = self.getRelativeBoundingBox()
         else:
-            bbox = self.getAbsoluteBoundingBox(format)
-            # bbox = (int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3]))
-            bbox = (bbox[0], bbox[1], bbox[2], bbox[3])
+            box = self.getAbsoluteBoundingBox(format)
 
         if self._bbType == BBType.Detected:
-            return "{} {} {} {} {} {}\n".format(self._classId, self._classConfidence, *bbox)
+            return f"{self._classId} {self._classConfidence} {box[0]} {box[1]} {box[2]} {box[3]}"
         else:
-            return "{} {} {} {} {}\n".format(self._classId, *bbox)
+            return f"{self._classId} {box[0]} {box[1]} {box[2]} {box[3]}"
 
     def addIntoImage(self, image, color=None, thickness=2):
         import cv2
@@ -443,9 +443,9 @@ class BoundingBox:
         """
         return copy.deepcopy(self)
 
-    def __str__(self):
+    def __repr__(self):
         coords = self.getAbsoluteBoundingBox(BBFormat.XYC)
-        description = "{} {} (xMid: {:.6}, yMid: {:.6}, w: {:.6}, h: {:.6})".format(
+        description = "{}, {}, xMid: {:.6}, yMid: {:.6}, w: {:.6}, h: {:.6}".format(
             os.path.basename(self._imageName),
             self._classId,
             *coords)

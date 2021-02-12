@@ -25,6 +25,9 @@ from collections.abc import MutableSequence
 from reg_plane import fit_plane, reg_score, BivariateFunction, Equation
 import image_transform as imtf
 
+from tqdm.contrib import tenumerate
+from tqdm import tqdm
+
 
 def confidence_ellipse(x, y, n_std=1):
     """
@@ -86,10 +89,6 @@ class Tracker:
         self.life_time += 1
         self.optical_flows.append(optical_flow)
 
-        # print(f"Epoch: {self.life_time}")
-        # print(f"Len dets: {len(detections)}, Len tracks: {len(self.tracks)}")
-        # print("OF: (x: {:.6}, y: {:.6})".format(self.acc_flow[0], self.acc_flow[1]))
-
         # Only get tracks that are in the current window
         tracked_boxes = self.get_all_boxes()
         moved_detections = BoundingBoxes()
@@ -99,14 +98,10 @@ class Tracker:
             (mx, my) = OpticalFlow.traverse_backward(self.optical_flows, x, y)
             moved_detections.append(det.movedBy(mx, my))
 
-        # matches, unmatched_dets, unmatched_tracks = self.assignment_match_indices(moved_detections, tracked_boxes)
         matches, unmatched_dets, unmatched_tracks = self.coco_assignement(moved_detections, tracked_boxes)
 
         for (det_idx, trk_idk) in matches:
             self.tracks[trk_idk].append(moved_detections[det_idx])
-
-        # print("unmatched dets: {}".format(unmatched_dets))
-        # print("unmatched_tracks: {}".format(unmatched_tracks))
 
         for det_idx in unmatched_dets:
             new_track = Track(history=[moved_detections[det_idx]])
@@ -123,7 +118,6 @@ class Tracker:
 
         min_image_size = min(detections[0].getImageSize())
         max_dist = self.dist_thresh * min_image_size
-        # print(f"Min image size: {min_image_size}, Max dist: {max_dist} pixels")
 
         visited = [False for _ in range(len(tracks))]
         matches = []
@@ -159,8 +153,6 @@ class Tracker:
         unmatched_dets = [d for d in range(len(detections)) if d not in matches[:, 0] and d not in ignored]
         unmatched_tracks = [t for t in range(len(tracks)) if t not in matches[:, 1]]
 
-        # print(matches)
-
         return matches, np.array(unmatched_dets), np.array(unmatched_tracks)
 
     def assignment_match_indices(self, detections, tracks):
@@ -171,15 +163,11 @@ class Tracker:
 
         min_image_size = min(detections[0].getImageSize())
         max_dist = self.dist_thresh * min_image_size
-        # print(f"Min image size: {min_image_size}, Max dist: {max_dist} pixels")
 
         dist_matrix = np.array([[detection.distance(track) for track in tracks] for detection in detections])
         dist_matrix[dist_matrix >= max_dist] = np.finfo(float).max
 
         dets_indices, tracks_indices = linear_sum_assignment(dist_matrix)
-
-        # print(dist_matrix)
-        # print(dets_indices, tracks_indices)
 
         matches = np.array([[d, t] for (d, t) in zip(dets_indices, tracks_indices) if dist_matrix[d, t] < max_dist])
 
@@ -280,7 +268,6 @@ class Track(MutableSequence):
         to_keep = int(to_keep * len(self.history))
         boxes = np.array([box.getAbsoluteBoundingBox(BBFormat.XYC) for box in self.history])
         coordinates = boxes[:, :2]
-        # print(coordinates)
         barycenter = coordinates.mean(axis=0)
         cov = np.cov(coordinates.transpose())
         inv_cov = np.linalg.inv(cov)
@@ -293,8 +280,6 @@ class Track(MutableSequence):
         filtered_indices = sorted_dist_indices[:to_keep]
         filtered_boxes = boxes[filtered_indices]
         filtered_box = filtered_boxes.mean(axis=0)
-
-        # print(barycenter - filtered_box[:2])
 
         ref_box = self.history[0]
         return BoundingBox(
@@ -325,9 +310,7 @@ class Track(MutableSequence):
 
 def gts_in_unique_ref(txt_file, folder, optical_flow, label):
     opt_flows = read_optical_flow(optical_flow)
-    # print(opt_flows)
     acc_flow = np.cumsum(opt_flows, axis=0)
-    # print(acc_flow)
 
     boxes = Parser.parse_yolo_gt_folder(folder, [label_to_number[label]])
     boxes.mapLabels(number_to_label)
@@ -778,14 +761,14 @@ class OpticalFlow:
 
         return np.median(dx), np.median(dy)
 
-    @classmethod
-    def generate(cls, txt_file, name="opt_flow.txt", masking_border=False, mask_egi=False):
+    @staticmethod
+    def generate(txt_file, name="opt_flow.txt", save_dir=None, masking_border=False, mask_egi=False):
         images = read_image_txt_file(txt_file)
         past_image = cv.imread(images[0])
         data = "0.000000, 0.000000\n"
         ofCalc = OpticalFlow(mask_border=masking_border, mask_egi=mask_egi)
 
-        for image in images[1:]:
+        for image in tqdm(images[1:], desc="Optical Flow", unit="image"):
             current_image = cv.imread(image)
             dx, dy = ofCalc.displacement(current_image, past_image)
             line = f"{dx}, {dy}\n"
@@ -793,7 +776,10 @@ class OpticalFlow:
             data += line
             past_image = current_image
 
-        with open(name, "w") as f:
+        save_dir = save_dir if save_dir else "save/"
+        create_dir(save_dir)
+
+        with open(os.path.join(save_dir, name), "w") as f:
             f.write(data)
 
     @classmethod
@@ -1565,7 +1551,6 @@ def normalized_stem_boxes(boxes,
 
 	return normalized_boxes
 
-
 def create_image_list_file(folder, save_dir=None):
     save_dir = save_dir if save_dir else folder
     create_dir(save_dir)
@@ -1579,24 +1564,30 @@ if __name__ == "__main__":
     # folder = "/home/deepwater/Downloads/operose_test_maize"
     # folder = "/home/deepwater/Downloads/operose_test"
     # folder="/media/deepwater/DATA/Shared/Louis/datasets/mais_debug_montoldre_2"
-    folder="/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2"
+    # folder="/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2"
 
-    create_image_list_file(folder)
+    folder = "/media/deepwater/DATA/Shared/Louis/datasets/tache_detection/haricot"
+    img_list = os.path.join(folder, "image_list.txt")
+    optflow_file = os.path.join(folder, "optical_flow.txt")
+    OpticalFlow.generate(img_list, "optical_flow.txt", save_dir=folder, masking_border=True, mask_egi=True)
+    # create_image_list_file(folder)
+    # boxes = Parser.parse_json_folder(folder, classes={"bean", "stem_bean"})
+    # print(boxes)
 
-    image_list_file = os.path.join(folder, "image_list.txt")
-    images = sorted(read_image_txt_file(image_list_file))
+    # image_list_file = os.path.join(folder, "image_list.txt")
+    # images = sorted(read_image_txt_file(image_list_file))
 
-    flow = OpticalFlowLK()
-    prev = cv.imread(images[0])
-    prev = cv.resize(prev, (512, 512))
+    # flow = OpticalFlowLK()
+    # prev = cv.imread(images[0])
+    # prev = cv.resize(prev, (512, 512))
 
-    for image in images[1:]:
-        next = cv.imread(image)
-        next = cv.resize(next, (512, 512))
-        (dx, dy) = flow(next, prev)
-        print(os.path.basename(image), dx, dy)
+    # for image in images[1:]:
+    #     next = cv.imread(image)
+    #     next = cv.resize(next, (512, 512))
+    #     (dx, dy) = flow(next, prev)
+    #     print(os.path.basename(image), dx, dy)
 
-        prev = next
+    #     prev = next
 
     # get_perspective_dataset("/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2")
     #

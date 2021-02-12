@@ -8,6 +8,7 @@ from collections import defaultdict
 
 import cv2 as cv
 from joblib import Parallel, delayed
+from tqdm import tqdm
 
 class BoundingBoxes(MutableSequence):
     def __init__(self, bounding_boxes=None):
@@ -184,13 +185,7 @@ class BoundingBoxes(MutableSequence):
             box.moveBy(dx, dy, typeCoordinates, imgSize)
 
     def boxes_in(self, rect):
-        boxes = []
-
-        for box in self:
-            if box.centerIsIn(rect):
-                boxes.append(box)
-
-        return BoundingBoxes(boxes)
+        return BoundingBoxes([box for box in self if box.centerIsIn(rect)])
 
     def shuffleBoundingBoxes(self):
         shuffle(self._boundingBoxes)
@@ -207,9 +202,9 @@ class BoundingBoxes(MutableSequence):
     def stats(self):
         print("{:<20} {:<15} {}".format(
             "Label:", "Nb Images:", "Nb Annotations:"))
-        for label in self.getClasses():
-            boxes = self.getBoundingBoxByClass(label)
-            nb_images = len(set([item.getImageName() for item in boxes]))
+        boxes_by_label = self.getBoxesBy(lambda box: box.getClassId())
+        for (label, boxes) in boxes_by_label.items():
+            nb_images = len(boxes.getNames())
             nb_annot = len(boxes)
 
             print("{:<20} {:<15} {}".format(label, nb_images, nb_annot))
@@ -228,15 +223,15 @@ class BoundingBoxes(MutableSequence):
             save_dir (str):
                 The directory where to save the files as TXT files.
         """
-        for imageName in self.getNames():
-            description = ""
-            for box in self.getBoundingBoxesByImageName(imageName):
-                description += box.description(type_coordinates, format)
+        if save_dir is not None:
+            create_dir(save_dir)
 
-            fileName = os.path.splitext(imageName)[0] + ".txt"
-            if save_dir is not None:
-                create_dir(save_dir)
-                fileName = os.path.join(save_dir, os.path.basename(fileName))
+        images_by_name = self.getBoxesBy(lambda box: box.getImageName())
+        for (image_name, boxes) in tqdm(images_by_name.items(), desc="Saving"):
+            description = "\n".join(box.description(type_coordinates, format) for box in boxes)
+
+            fileName = os.path.splitext(image_name)[0] + ".txt"
+            fileName = os.path.join(save_dir, os.path.basename(fileName))
 
             with open(fileName, "w") as f:
                 f.write(description)
@@ -257,8 +252,8 @@ class BoundingBoxes(MutableSequence):
 
     def plotHistogram(self):
         areas = []
-        for label in self.getClasses():
-            boxes = self.getBoundingBoxByClass(label)
+        boxes_by_label = self.getBoxesBy(lambda box: box.getClassId())
+        for (label, boxes) in boxes_by_label.items():
             areas.append([bbox.getArea() for bbox in boxes])
         # plt.hist(areas, bins=200, stacked=True, density=True, label=labels)
         # plt.hist([bbox.getArea() for bbox in boxes], bins=100)
@@ -325,6 +320,35 @@ class BoundingBoxes(MutableSequence):
 
         Parallel(n_jobs=-1, verbose=10)(delayed(self.drawImage)(name, sd) for (name, sd) in zip(names, save_dir))
 
+    @staticmethod
+    def draw_image(image, boxes):
+        for box in boxes:
+            box.addIntoImage(image)
+        return image
+
+    def draw_all(self, save_dir):
+        create_dir(save_dir)
+        images_by_name = self.getBoxesBy(lambda box: box.getImageName())
+        for (image_name, boxes) in tqdm(images_by_name.items(), desc="Drawing", unit="image"):
+            img = cv.imread(image_name)
+            BoundingBoxes.draw_image(img, boxes)
+            save_name = os.path.join(save_dir, os.path.basename(image_name))
+            cv.imwrite(save_name, img)
+
+    def draw_all_centers(self, save_dir):
+        create_dir(save_dir)
+        images_by_name = self.getBoxesBy(lambda box: box.getImageName())
+
+        for (image_name, boxes) in tqdm(images_by_name.items(), desc="Drawing", unit="image"):
+            img = cv.imread(image_name)
+            for box in boxes:
+                (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
+                label = box.getClassId()
+                color = (0, 255, 0) if box.getBBType() == BBType.GroundTruth else (0, 0, 255)
+                cv.circle(img, (int(x), int(y)), 5, color, thickness=cv.FILLED)
+            save_name = os.path.join(save_dir, os.path.basename(image_name))
+            cv.imwrite(save_name, img)
+
     def drawAllCenters(self, save_dir, n_jobs=-1):
         def inner(element):
             (image_name, image_boxes) = element
@@ -353,8 +377,5 @@ class BoundingBoxes(MutableSequence):
     def copy(self):
         return BoundingBoxes([box.copy() for box in self._boundingBoxes])
 
-    def __str__(self):
-        description = ""
-        for box in self:
-            description += str(box) + "\n"
-        return description
+    def __repr__(self):
+        return "\n".join(f"{box}" for box in self)
