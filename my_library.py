@@ -38,14 +38,14 @@ class Tracker:
         self.dist_thresh = dist_thresh
         self.tracks = []
         self.inactive_tracks = []
-        self.optical_flows = []
+        # self.optical_flows = []
         self.life_time = 0
         self._ox = 0.0
         self._oy = 0.0
 
     def update(self, detections, optical_flow):
         self.life_time += 1
-        self.optical_flows.append(optical_flow)
+        # self.optical_flows.append(optical_flow)
         (nx, ny) = optical_flow(0.0, 0.0)
         self._ox += nx
         self._oy += ny
@@ -153,25 +153,24 @@ class Tracker:
         return matches, unmatched_dets, unmatched_tracks
 
     def get_all_boxes(self):
-        return [track.barycenter_box() for track in self.tracks]
+        return BoundingBoxes([track.barycenter_box() for track in self.tracks])
 
     def get_filtered_boxes(self):
-        filtered_boxes = [track.barycenter_box() for track in (self.tracks + self.inactive_tracks)
-            if track.mean_confidence() > self.min_confidence
-            and len(track) > self.min_points
-        ]
-        return BoundingBoxes(filtered_boxes)
+        return BoundingBoxes([track.barycenter_box() for track in (self.tracks + self.inactive_tracks)
+            if len(track) > self.min_points
+            and track.mean_confidence() > self.min_confidence
+        ])
 
     def get_mahal_filtered_boxes(self):
         return BoundingBoxes([track.robust_barycenter() for track in (self.tracks + self.inactive_tracks)
-            if track.mean_confidence() > self.min_confidence
-            and len(track) > self.min_points
+            if len(track) > self.min_points
+            and track.mean_confidence() > self.min_confidence
         ])
 
     def get_filtered_tracks(self):
         return [track for track in (self.tracks + self.inactive_tracks)
-            if track.mean_confidence() > self.min_confidence
-            and len(track) > self.min_points]
+            if len(track) > self.min_points
+            and track.mean_confidence() > self.min_confidence]
 
     def print_stats_for_tracks(self, tracks=None):
         if tracks is None:
@@ -306,7 +305,7 @@ def associate_tracks_with_image(txt_file, optical_flow, tracker):
         ymax = dy + img_height
 
         for track in tracks:
-            if track.barycenter_box().centerIsIn([xmin, ymin, xmax, ymax]):
+            if track.barycenter_box().centerIsIn((xmin, ymin, xmax, ymax)):
                 track = track.movedBy(-xmin, -ymin)
                 output[image].append(track)
 
@@ -319,14 +318,14 @@ def associate_boxes_with_image(txt_file, optical_flow, boxes):
     (img_width, img_height) = image_size(images[0])
     out_boxes = BoundingBoxes()
 
-    for i, image in enumerate(images):
+    for (i, image) in enumerate(images):
         (dx, dy) = OpticalFlow.traverse_backward(opt_flows[:i+1], 0, 0)  # +1 !!!
         xmin = dx
         ymin = dy
         xmax = img_width + dx
         ymax = img_height + dy
 
-        image_boxes = boxes.boxes_in([xmin, ymin, xmax, ymax])
+        image_boxes = boxes.boxes_in((xmin, ymin, xmax, ymax))
         image_boxes = image_boxes.movedBy(-xmin, -ymin)
 
         for box in image_boxes:

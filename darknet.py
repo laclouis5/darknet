@@ -1461,6 +1461,26 @@ def point_cloud_visu(yolo, txt_file, opt_flow, label, conf_thresh=0.25):
         cv.imwrite(save_img_name, img)
 
 
+def track_aggr(boxes, image_list, optflow_file, image_names, conf_thresh, min_points, dist_thresh, crop_percent=5/100):
+    images = read_image_txt_file(image_list)
+    opt_flows = OpticalFlow.read(optflow_file)
+    tracker = Tracker(min_confidence=conf_thresh, min_points=min_points, dist_thresh=dist_thresh)
+
+    # Python dict are ordered but safer to iterate over image_names as key than dict.items()
+    boxes_by_name = boxes.getBoxesBy(lambda box: box.getImageName())
+    for (i, image_name) in tenumerate(images, desc="Tracking", unit="image", leave=False):
+        tracker.update(boxes_by_name[image_name], opt_flows[i])
+
+    dets = tracker.get_filtered_boxes()
+    dets = associate_boxes_with_image(image_list, optflow_file, dets)
+    dets = BoundingBoxes([det for det in dets
+        if det.getImageName() in image_names
+        and det.centerIsIn((crop_percent, crop_percent, 1.0 - crop_percent, 1.0 - crop_percent), as_percent=True)
+    ])
+
+    return dets, tracker
+
+
 if __name__ == "__main__":
     train_path = "data/train/"
     val_path = "data/val/"
@@ -1602,26 +1622,18 @@ if __name__ == "__main__":
     # boxes.save(type_coordinates=CoordinatesType.Relative, save_dir="save/_tmp/")
 
     # FILTERING EVALUATION
-    # gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
-    gts = Parser.parse_json_folder(bean_2_folder, classes={"stem_bean"})
-    image_names = gts.getNames()
-    # gts.mapLabels(fr_to_en)
-    boxes = Parser.parse_yolo_det_folder("save/stem_bean_2_aggr/",
-        img_folder=bean_2_folder,
-        classes=["stem_bean"])
-    # boxes.mapLabels({"bean": "stem_bean"})
-    tracker = detect_and_track_aggr_2(boxes, bean_2_img_list, bean_2_optflow,
-        conf_thresh=25/100, min_points=13, dist_thresh=6/100, verbose=True)
-    # tracks = associate_tracks_with_image(bean_2_img_list, bean_2_optflow, tracker)
+    gts = Parser.parse_xml_folder(maize_long_folder, [en_to_fr["stem_maize"]])
+    # gts = Parser.parse_json_folder(bean_2_folder, classes={"stem_bean"})
+    gts.mapLabels(fr_to_en)
+    boxes = Parser.parse_yolo_det_folder("save/stem_maize_aggr/",
+        img_folder=maize_long_folder,
+        classes=["stem_maize"])
+    # boxes.mapLabels({"maize": "stem_maize"})
+    dets, tracker = track_aggr(boxes, maize_long, maize_opt_flow, gts.getNames(),
+        conf_thresh=25/100, min_points=12, dist_thresh=12/100)
+    # tracks = associate_tracks_with_image(maize_2_img_list, maize_2_optflow, tracker)
     # tracks = {k: v for (k, v) in tracks.items() if k in image_names}
     # draw_tracked_confidence_ellipse(tracks, "save/tmp/")
-    dets = tracker.get_filtered_boxes()
-    dets = associate_boxes_with_image(bean_2_img_list, bean_2_optflow, dets)
-    dets = BoundingBoxes([det for det in dets
-        if det.getImageName() in image_names
-        # and det.centerIsIn([32, 32, 600, 600])  # For (632, 632)
-        and det.centerIsIn([50, 35, 974, 733])  # For (1024, 768)
-    ])
     Evaluator().printAPsByClass((dets + gts),
         thresh=5/100,
         method=EvaluationMethod.Distance)

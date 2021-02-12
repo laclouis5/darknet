@@ -249,7 +249,7 @@ class BoundingBox:
         box.clip(size)
         return box
 
-    def centerIsIn(self, rect=None):
+    def centerIsIn(self, rect=None, as_percent=False):
         """
         Returns True if the BoundingBox center is in a given rectangle. If no rectangle is provided, the image size stored in the BoundingBox is used, if there is one.
 
@@ -259,25 +259,19 @@ class BoundingBox:
         Returns:
             bool: Boolean indicading if the BoundingBox center is in the Rectangle.
         """
+        (img_w, img_h) = self.getImageSize()
+        if (img_w is None or img_h is None) and rect is None:
+            raise IOError("Parameter 'rect' is required")
 
-        if (self._width_img is None or self._height_img is None) and rect is None:
-            raise IOError("Parameter 'rect' is required. It is necessary to inform it.")
-
-        def centerIsIn(x, y, rect):
-            if x < rect[0]: return False
-            if x > rect[2]: return False
-            if y < rect[1]: return False
-            if y > rect[3]: return False
-            return True
+        if rect:
+            if as_percent:
+                rect = (rect[0]*img_w, rect[1]*img_h, rect[2]*img_w, rect[3]*img_h)
+        else:
+            rect = (0.0, 0.0, img_w, img_h)
 
         (x, y, _, _) = self.getAbsoluteBoundingBox(format=BBFormat.XYC)
 
-        if rect is not None:
-            return centerIsIn(x, y, rect)
-        else:
-            (w, h) = self.getImageSize()
-            rect = [0, 0, w, h]
-            return centerIsIn(x, y, rect)
+        return x > rect[0] and x < rect[2] and y > rect[1] and y < rect[3]
 
     def iou(self, other):
         """
