@@ -12,10 +12,7 @@ from tqdm import tqdm
 
 class BoundingBoxes(MutableSequence):
     def __init__(self, bounding_boxes=None):
-        if bounding_boxes is not None:
-            self._boundingBoxes = bounding_boxes
-        else:
-            self._boundingBoxes = []
+        self._boundingBoxes = bounding_boxes or []
 
     def __len__(self):
         return len(self._boundingBoxes)
@@ -209,7 +206,7 @@ class BoundingBoxes(MutableSequence):
 
             print("{:<20} {:<15} {}".format(label, nb_images, nb_annot))
 
-    def save(self, type_coordinates=CoordinatesType.Relative, format=BBFormat.XYC, save_dir=None):
+    def save(self, type_coordinates=CoordinatesType.Relative, format=BBFormat.XYC, save_dir=None, save_conf=True):
         """
         Save all bounding boxes as Yolo annotation files in the specified directory.
 
@@ -228,10 +225,11 @@ class BoundingBoxes(MutableSequence):
 
         images_by_name = self.getBoxesBy(lambda box: box.getImageName())
         for (image_name, boxes) in tqdm(images_by_name.items(), desc="Saving"):
-            description = "\n".join(box.description(type_coordinates, format) for box in boxes)
+            description = "\n".join(box.description(type_coordinates, format, save_conf=save_conf) for box in boxes)
 
+            d = save_dir or os.path.split(image_name)[0]
             fileName = os.path.splitext(image_name)[0] + ".txt"
-            fileName = os.path.join(save_dir, os.path.basename(fileName))
+            fileName = os.path.join(d, os.path.basename(fileName))
 
             with open(fileName, "w") as f:
                 f.write(description)

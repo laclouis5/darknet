@@ -346,7 +346,7 @@ class BoundingBox:
     def setClassId(self, new_class_id):
         self._classId = new_class_id
 
-    def description(self, type_coordinates=None, format=None):
+    def description(self, type_coordinates=None, format=None, save_conf=True):
         """
         Returns a string representing the box: "classId <optional confidence> coord1 coord2 coord3 coord4". The coordinates depends on the chosen format.
 
@@ -356,40 +356,26 @@ class BoundingBox:
             format (optional BBFormat):
                 The coordinates format to use: XYWH, XYC or XYX2Y2. If not specified, the value stored in the BoundingBox object is used.
         """
-        if type_coordinates is None:
-            type_coordinates = self._typeCoordinates
-        if format is None:
-            format = self._format
+        type_coordinates = type_coordinates or self._typeCoordinates
+        format = format or self._format
+        box = self.getRelativeBoundingBox() if type_coordinates == CoordinatesType.Relative else self.getAbsoluteBoundingBox(format)
 
-        if type_coordinates == CoordinatesType.Relative:
-            box = self.getRelativeBoundingBox()
-        else:
-            box = self.getAbsoluteBoundingBox(format)
-
-        if self._bbType == BBType.Detected:
+        if self._bbType == BBType.Detected and save_conf:
             return f"{self._classId} {self._classConfidence} {box[0]} {box[1]} {box[2]} {box[3]}"
-        else:
-            return f"{self._classId} {box[0]} {box[1]} {box[2]} {box[3]}"
+
+        return f"{self._classId} {box[0]} {box[1]} {box[2]} {box[3]}"
 
     def addIntoImage(self, image, color=None, thickness=2):
         import cv2
 
         # Choose color if not specified
-        if color is None:
-            if self._bbType == BBType.GroundTruth:
-                color = (127, 255, 127)
-            else:
-                color = (255, 100, 100)
-
+        color = color or ((127, 255, 127) if self._bbType == BBType.GroundTruth else (255, 100, 100))
         font = cv2.FONT_HERSHEY_SIMPLEX
         fontScale = 0.5
         fontThickness = 1
 
         x1, y1, x2, y2 = self.getAbsoluteBoundingBox(BBFormat.XYX2Y2)
-        x1 = int(x1)
-        y1 = int(y1)
-        x2 = int(x2)
-        y2 = int(y2)
+        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
         cv2.rectangle(image, (x1, y1), (x2, y2), color, thickness)
 
         # Add label

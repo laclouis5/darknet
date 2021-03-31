@@ -30,6 +30,7 @@ from tqdm import tqdm
 
 from functools import reduce
 
+
 class Tracker:
 
     def __init__(self, min_confidence, min_points, dist_thresh):
@@ -40,6 +41,7 @@ class Tracker:
         self.inactive_tracks = []
         # self.optical_flows = []
         self.life_time = 0
+        self.max_inactive = 30
         self._ox = 0.0
         self._oy = 0.0
 
@@ -50,7 +52,7 @@ class Tracker:
         self._ox += nx
         self._oy += ny
 
-        tracked_boxes = self.get_all_boxes()
+        tracked_boxes = self._get_all_boxes()
         moved_detections = BoundingBoxes()
 
         for det in detections:
@@ -77,13 +79,10 @@ class Tracker:
 
         # Do something with inactive tracks
         for trk_idx in reversed(range(len(self.tracks))):
-            if self.tracks[trk_idx].epochs_without_update > 30:
+            if self.tracks[trk_idx].epochs_without_update > self.max_inactive:
                 self.inactive_tracks.append(self.tracks.pop(trk_idx))
 
     def coco_assignement(self, detections, tracks):
-        """
-        [row: det, col: track]
-        """
         if len(detections) == 0:
             return np.empty((0, 0), dtype=int), np.empty((0, 0), dtype=int), np.arange(len(tracks))
         if len(tracks) == 0:
@@ -92,7 +91,7 @@ class Tracker:
         min_image_size = min(detections[0].getImageSize())
         max_dist = self.dist_thresh * min_image_size
 
-        visited = [False for _ in range(len(tracks))]
+        visited = [False] * len(tracks)
         matches = []
         ignored = set()
 
@@ -152,7 +151,7 @@ class Tracker:
 
         return matches, unmatched_dets, unmatched_tracks
 
-    def get_all_boxes(self):
+    def _get_all_boxes(self):
         return BoundingBoxes([track.barycenter_box() for track in self.tracks])
 
     def get_filtered_boxes(self):
@@ -181,7 +180,7 @@ class Tracker:
             print("Track {}: len: {}, pos: (x: {:.6}, y: {:.6}), conf: {:.6}".format(track.track_id, len(track), x, y, track.mean_confidence()))
 
     def __repr__(self):
-        return "\n".join(f"{track}" for track in self.tracks)
+        return "\n".join(f"{track}" for track in (self.tracks + self.inactive_tracks))
 
 
 class Track(MutableSequence):
@@ -190,7 +189,7 @@ class Track(MutableSequence):
     def __init__(self, history=None):
         self.track_id = Track.track_id
         self.epochs_without_update = 0
-        self.history = history if history else BoundingBoxes()
+        self.history = history or BoundingBoxes()
 
         Track.track_id += 1
 
@@ -1591,13 +1590,13 @@ if __name__ == "__main__":
     # folder="/media/deepwater/DATA/Shared/Louis/datasets/mais_debug_montoldre_2"
     # folder="/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2"
 
-    folder = "/media/deepwater/DATA/Shared/Louis/datasets/tache_detection/haricot"
+    folder = "/media/deepwater/DATA/Shared/Louis/datasets/tache_detection/maize (copy)"
     img_list = os.path.join(folder, "image_list.txt")
+    create_image_list_file(folder)
     optflow_file = os.path.join(folder, "optical_flow.txt")
     OpticalFlow.generate(img_list, "optical_flow.txt", save_dir=folder, masking_border=True, mask_egi=True)
-    # create_image_list_file(folder)
-    # boxes = Parser.parse_json_folder(folder, classes={"bean", "stem_bean"})
-    # print(boxes)
+    boxes = Parser.parse_json_folder(folder, classes={"maize", "maize_stem"})
+    print(boxes)
 
     # image_list_file = os.path.join(folder, "image_list.txt")
     # images = sorted(read_image_txt_file(image_list_file))

@@ -123,6 +123,7 @@ class Evaluator:
     def printAPsByClass(self, boxes, thresh=0.5, method=EvaluationMethod.IoU):
         metrics = self.GetPascalVOCMetrics(boxes, thresh, method)
         tot_tp, tot_fp, tot_npos, accuracy = 0, 0, 0, 0
+        accuracies = []
         print("AP@{} by class:".format(thresh))
 
         for (label, metric) in metrics.items():
@@ -132,6 +133,7 @@ class Evaluator:
             TP = metric["total TP"]
             FP = metric["total FP"]
             accuracy += sum(metric["accuracies"])
+            accuracies.extend(metric["accuracies"])
             tot_tp += TP
             tot_fp += FP
             tot_npos += totalPositive
@@ -143,8 +145,11 @@ class Evaluator:
         f1 = 2 * recall * precision / (recall + precision)
         accuracy = accuracy / tot_tp
 
+        std = np.std(accuracies)
+        err = std / np.sqrt(len(accuracies))
+
         print("Global stats: ")
-        print("  recall: {:.2%}, precision: {:.2%}, f1: {:.2%}, acc: {:.2%}".format(recall, precision, f1, accuracy))
+        print("  recall: {:.2%}, precision: {:.2%}, f1: {:.2%}, acc: {:.2%}, err_acc: {:.2%}".format(recall, precision, f1, accuracy, err))
 
         return (recall, precision, f1)
 

@@ -66,13 +66,9 @@ def plot_rec_prec_curve(data, label):
     plt.annotate("{:.2%}".format(best_f1), (best_rec, best_pre))
 
     if label == "bean":
-        # rec, prec = 0.7979, 0.9146
-        # rec, prec = 0.7766, 0.9241
-        rec, prec = 0.8085, 0.9620
+        rec, prec = 0.8669, 0.9702
     elif label == "maize":
-        # rec, prec = 0.8065, 0.8475
-        # rec, prec = 0.7661, 0.8716
-        rec, prec = 0.8145, 0.9018
+        rec, prec = 0.8333, 0.9091
 
     f1 = f1_score(rec, prec)
     plt.annotate("{:.2%}".format(f1), (rec + 0.005, prec + 0.005))
@@ -84,8 +80,8 @@ def plot_rec_prec_curve(data, label):
     plt.xticks(percents, ["{:.0%}".format(p) for p in percents])
     plt.yticks(percents, ["{:.0%}".format(p) for p in percents])
     plt.legend(loc="lower left")
-    plt.xlim([0.4 if label == "bean" else 0.6, 1])
-    plt.ylim([0.3, 1])
+    plt.xlim([0.5 if label == "bean" else 0.75, 1])
+    plt.ylim([0.4 if label == "bean" else 0.3, 1])
     plt.show()
 
 def plot_f1_curve(data):
@@ -107,10 +103,10 @@ def plot_f1_curve(data):
     plt.show()
 
 def main():
-    label = "bean"
-    file = f"save/aggr_grid_search_{label}_new.csv"
+    label = "maize"
+    file = f"save/_aggr_grid_search_{label}.csv"
     data = read_csv_file(file)
-    data = add_info(data, 94 if label == "bean" else 124)
+    data = add_info(data, 94+169 if label == "bean" else 124+20)
     data_by_dist = split_by_dist(data, 6)
     plot_rec_prec_curve(data_by_dist, label)
 

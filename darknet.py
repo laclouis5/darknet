@@ -1477,7 +1477,6 @@ def track_aggr(boxes, image_list, optflow_file, image_names, conf_thresh, min_po
         if det.getImageName() in image_names
         and det.centerIsIn((crop_percent, crop_percent, 1.0 - crop_percent, 1.0 - crop_percent), as_percent=True)
     ])
-
     return dets, tracker
 
 
@@ -1486,21 +1485,21 @@ if __name__ == "__main__":
     val_path = "data/val/"
     test_path = "/media/deepwater/DATA/Shared/Louis/datasets/test_set/"
 
-    bean_long = "data/haricot_debug_long_2.txt"
-    bean_long_folder = "/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2"
-    bean_opt_flow = "data/opt_flow_haricot_better.txt"
+    bean_folder = "/media/deepwater/DATA/Shared/Louis/datasets/haricot_debug_montoldre_2"
+    bean_img_list = "data/haricot_debug_long_2.txt"
+    bean_optflow = "data/opt_flow_haricot_better.txt"
 
-    maize_long = "data/mais_debug_long_2.txt"
-    maize_long_folder = "/media/deepwater/DATA/Shared/Louis/datasets/mais_debug_montoldre_2"
-    maize_opt_flow = "data/opt_flow_mais_better.txt"
-
-    # bean_seq = "data/haricot_sequential.txt"
-    # bean_seq_folder = "/media/deepwater/DATA/Shared/Louis/datasets/haricot_montoldre_sequential"
-    # bean_seq_flow = "data/optflow_haricot_seq.txt"
+    maize_folder = "/media/deepwater/DATA/Shared/Louis/datasets/mais_debug_montoldre_2"
+    maize_img_list = "data/mais_debug_long_2.txt"
+    maize_optflow = "data/opt_flow_mais_better.txt"
 
     bean_2_folder = "/media/deepwater/DATA/Shared/Louis/datasets/tache_detection/haricot"
     bean_2_img_list = os.path.join(bean_2_folder, "image_list.txt")
     bean_2_optflow = os.path.join(bean_2_folder, "optical_flow.txt")
+
+    maize_2_folder = "/media/deepwater/DATA/Shared/Louis/datasets/tache_detection/maize"
+    maize_2_img_list = os.path.join(maize_2_folder, "image_list.txt")
+    maize_2_optflow = os.path.join(maize_2_folder, "optical_flow.txt")
 
     # YOLO V3
     # model_path = "results/yolov3-tiny_3l_14"  # BDD 4.2
@@ -1525,8 +1524,10 @@ if __name__ == "__main__":
     # model_path = "results/yolov4-tiny_stem_classif_2"
 
     # model_path = "results/yolov4_7/"  # BDD 8.2 norm stems
-    model_path = "results/yolov4-tiny_10/"  # BDD 8.2 norm stems
+    model_path = "results/yolov4-tiny_10/"  # BDD 8.2 norm stems  <-- Current best
     # model_path = "results/yolov3-tiny_3l_15/"  # BDD 8.2 norm stems
+
+    # model_path = "results/yolov4-tiny_stem/"
 
     yolo = YoloModelPath(model_path)
 
@@ -1537,8 +1538,8 @@ if __name__ == "__main__":
     save_dir = 'save/'
     labels_to_names = ['maize', 'bean', 'leek', 'stem_maize', 'stem_bean', 'stem_leek']
     label_to_number = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
-    number_to_label = {0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"}
-    # number_to_label = {0: "stem_maize", 1: "stem_bean", 2: "stem_leek"}
+    # number_to_label = {0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"}
+    number_to_label = {0: "stem_maize", 1: "stem_bean"}
     fr_to_en = {"mais": "maize", "haricot": "bean", "poireau": "leek", "mais_tige": "stem_maize", "haricot_tige": "stem_bean", "poireau_tige": "stem_leek"}
     en_to_fr = {"maize": "mais", "bean": "haricot", "leek": "poireau", "stem_maize": "mais_tige", "stem_bean": "haricot_tige", "stem_leek": "poireau_tige"}
 
@@ -1547,11 +1548,11 @@ if __name__ == "__main__":
     # dets.drawAll(save_dir="stem_classif")
 
     # COMPUTE MAP
-    # labels = ["maize", "bean", "stem_maize", "stem_bean"]
-    # # labels = ["maize", "bean", "leek", "stem_maize", "stem_bean", "stem_leek"]
-    # # labels = [f"maize_{i}" for i in range(10)]
-    # # labels += [f"bean_{i}" for i in range(10)]
-    # # number_to_label = {i: label for (i, label) in enumerate(labels)}
+    labels = ["stem_maize", "stem_bean"]
+    # labels = ["maize", "bean", "leek", "stem_maize", "stem_bean", "stem_leek"]
+    # labels = [f"maize_{i}" for i in range(10)]
+    # labels += [f"bean_{i}" for i in range(10)]
+    # number_to_label = {i: label for (i, label) in enumerate(labels)}
     # gts = Parser.parse_yolo_gt_folder(val_path)
     # gts.mapLabels(number_to_label)
     # gts = gts.getBoundingBoxByClass(labels)
@@ -1560,8 +1561,10 @@ if __name__ == "__main__":
     # dets = dets.getBoundingBoxByClass(labels)
 
     # Evaluator().printAPs(gts + dets)
-    # Evaluator().printAPsByClass(gts + dets)
-
+    # Evaluator().printAPsByClass(gts + dets, 
+    #     thresh=5/100, 
+    #     method=EvaluationMethod.Distance)
+    
     # thresholds = np.linspace(0.005, 0.95, 20)
     # recalls = []
     # precisions = []
@@ -1618,71 +1621,103 @@ if __name__ == "__main__":
     # drawConstellationFlat(maize_long, maize_long_folder, maize_opt_flow, en_to_fr["stem_maize"])
 
     # SAVE DARKNET DETECTION TO FILES
-    # boxes = performDetectOnFolder(yolo, bean_2_folder, conf_thresh=25/100)
-    # boxes.save(type_coordinates=CoordinatesType.Relative, save_dir="save/_tmp/")
+    folders = [os.path.join(f"/media/deepwater/DATA/Shared/Louis/datasets/training_set/2021-03-29_larrere/row_{i+1}") for i in range(4)]
+    for folder in folders:
+        boxes = performDetectOnFolder(yolo, folder, conf_thresh=50/100)
+        boxes.save(type_coordinates=CoordinatesType.Relative, save_conf=False)
 
     # FILTERING EVALUATION
-    gts = Parser.parse_xml_folder(maize_long_folder, [en_to_fr["stem_maize"]])
-    # gts = Parser.parse_json_folder(bean_2_folder, classes={"stem_bean"})
-    gts.mapLabels(fr_to_en)
-    boxes = Parser.parse_yolo_det_folder("save/stem_maize_aggr/",
-        img_folder=maize_long_folder,
-        classes=["stem_maize"])
-    # boxes.mapLabels({"maize": "stem_maize"})
-    dets, tracker = track_aggr(boxes, maize_long, maize_opt_flow, gts.getNames(),
-        conf_thresh=25/100, min_points=12, dist_thresh=12/100)
-    # tracks = associate_tracks_with_image(maize_2_img_list, maize_2_optflow, tracker)
-    # tracks = {k: v for (k, v) in tracks.items() if k in image_names}
-    # draw_tracked_confidence_ellipse(tracks, "save/tmp/")
-    Evaluator().printAPsByClass((dets + gts),
-        thresh=5/100,
-        method=EvaluationMethod.Distance)
-    # dets.drawAllCenters(save_dir="save/a_2/")
-    # gts.drawAllCenters("save/a_2")
+    # label = "bean"
+    # stem_label = "stem_maize" if label == "maize" else "stem_bean"
+    # min_points = 10 if label == "maize" else 13
+    # dist_thresh = (12 if label == "maize" else 6) / 100
+    # folder = maize_folder if label == "maize" else bean_folder
+    # folder_2 = maize_2_folder if label == "maize" else bean_2_folder
+    # dets_folder = "save/stem_maize_aggr/" if label == "maize" else "save/stem_bean_aggr/"
+    # dets_folder_2 = "save/stem_maize_2_aggr/" if label == "maize" else "save/stem_bean_2_aggr/"
+    # # dets_folder = f"/home/deepwater/github/ObjectStructureDetector/experiments/{label}_debug_montoldre_2"
+    # # dets_folder_2 = f"/home/deepwater/github/ObjectStructureDetector/experiments/{label}_2"
+    # # dets_folder = f"save/yolo_stem_{label}_1"
+    # # dets_folder_2 = f"save/yolo_stem_{label}_2"
+    # img_list = maize_img_list if label == "maize" else bean_img_list
+    # img_list_2 = maize_2_img_list if label == "maize" else bean_2_img_list
+    # opt_flow = maize_optflow if label == "maize" else bean_optflow
+    # opt_flow_2 = maize_2_optflow if label == "maize" else bean_2_optflow
+
+    # gts1 = Parser.parse_xml_folder(folder, [en_to_fr[stem_label]])
+    # gts1.mapLabels(fr_to_en)
+    # image_names_1 = gts1.getNames()
+    # gts2 = Parser.parse_json_folder(folder_2, classes={stem_label})
+    # image_names_2 = gts2.getNames()
+    # gts = gts1 + gts2
+    # boxes = Parser.parse_yolo_det_folder(dets_folder,
+    #     img_folder=folder,
+    #     classes=[stem_label])
+    # boxes += Parser.parse_yolo_det_folder(dets_folder_2,
+    #     img_folder=folder_2,
+    #     classes=[stem_label])
+    # # boxes.mapLabels({label: stem_label})
+    # dets, tracker = track_aggr(boxes, img_list, opt_flow, gts.getNames(),
+    #     conf_thresh=25/100, min_points=min_points, dist_thresh=dist_thresh)
+    # dets2, tracker2 = track_aggr(boxes, img_list_2, opt_flow_2, gts.getNames(),
+    #     conf_thresh=25/100, min_points=min_points, dist_thresh=dist_thresh)
+    # # tracks = associate_tracks_with_image(maize_img_list, maize_optflow, tracker)
+    # # tracks = {k: v for (k, v) in tracks.items() if k in image_names_1}
+    # # draw_tracked_confidence_ellipse(tracks, "save/ellipse_paper_maize_1/")
+    # # tracks = associate_tracks_with_image(maize_2_img_list, maize_2_optflow, tracker2)
+    # # tracks = {k: v for (k, v) in tracks.items() if k in image_names_2}
+    # # draw_tracked_confidence_ellipse(tracks, "save/ellipse_paper_maize_2/")
+    # Evaluator().printAPsByClass((gts + dets + dets2),
+    #     thresh=5/100,
+    #     method=EvaluationMethod.Distance)
+    # # dets.drawAllCenters(save_dir="save/unflawed_maize_database/")
+    # # gts.drawAllCenters("save/a_2")
 
     # WITHOUT FILTERING EVALUATION
-    # # gts = Parser.parse_xml_folder(bean_long_folder, [en_to_fr["stem_bean"]])
-    # gts = Parser.parse_json_folder(bean_2_folder, classes={"stem_bean"})
+    # gts = Parser.parse_xml_folder(folder, [en_to_fr[stem_label]])
+    # gts.mapLabels(fr_to_en)
+    # gts += Parser.parse_json_folder(folder_2, classes={stem_label})
+    # boxes = Parser.parse_yolo_det_folder(dets_folder,
+    #     img_folder=folder,
+    #     classes=[stem_label])
+    # boxes += Parser.parse_yolo_det_folder(dets_folder_2,
+    #     img_folder=folder_2,
+    #     classes=[stem_label])
+    # # boxes.mapLabels({label: stem_label})
     # image_names = gts.getNames()
-    # # gts.mapLabels(fr_to_en)
-    # boxes = Parser.parse_yolo_det_folder("save/stem_bean_2_aggr/",
-    #     img_folder=bean_2_folder,
-    #     classes=["stem_bean"])
-    # # boxes.mapLabels({"bean": "stem_bean"})
     # dets = BoundingBoxes([det for det in boxes
     #     if det.getImageName() in image_names
-    #     # and det.centerIsIn([32, 32, 600, 600])
-    #     and det.centerIsIn([50, 35, 974, 733])  # For (1024, 768)
+    #     and det.centerIsIn((0.05, 0.05, 0.95, 0.95), as_percent=True)
     # ])
     # Evaluator().printAPsByClass((dets + gts),
     #     thresh=5/100,
     #     method=EvaluationMethod.Distance)
-    # # dets.drawAllCenters("save/tmp")
+    # # dets.drawAllCenters("save/tmp2")
 
     # GRID SEARCH TEST
-    # gts = Parser.parse_xml_folder(maize_long_folder, [en_to_fr["stem_maize"]])
+    # gts = Parser.parse_xml_folder(bean_folder, [en_to_fr["stem_bean"]])
     # gts.mapLabels(fr_to_en)
-    # boxes = Parser.parse_yolo_det_folder("save/stem_maize_aggr/",
-    #     img_folder=maize_long_folder,
-    #     classes=["stem_maize"])
+    # gts += Parser.parse_json_folder(bean_2_folder, classes={"stem_bean"})
+    # boxes = Parser.parse_yolo_det_folder("save/stem_bean_aggr/",
+    #     img_folder=bean_folder,
+    #     classes=["stem_bean"])
+    # boxes += Parser.parse_yolo_det_folder("save/stem_bean_2_aggr/",
+    #     img_folder=bean_2_folder,
+    #     classes=["stem_bean"])
     # out = []
     # r1, r2 = range(3, 21, 3), range(1, 21)
     # pbar = tqdm(desc="Grid Search", total=len(r1)*len(r2))
     # for min_dist in r1:
     #     min_dist /= 100
     #     for min_points in r2:
-    #         tracker = detect_and_track_aggr_2(boxes, maize_long, maize_opt_flow,
-    #             conf_thresh=25/100,
-    #             min_points=min_points,
-    #             dist_thresh=min_dist, 
-    #             verbose=True)
-    #         dets = tracker.get_filtered_boxes()
-    #         dets = associate_boxes_with_image(maize_long, maize_opt_flow, dets)
-    #         dets = BoundingBoxes([det for det in dets if det.getImageName() in gts.getNames() and det.centerIsIn([32, 32, 600, 600])])
+    #         dets, _ = track_aggr(boxes, bean_img_list, bean_optflow, gts.getNames(),
+    #             conf_thresh=25/100, min_points=min_points, dist_thresh=min_dist)
+    #         dets2, _ = track_aggr(boxes, bean_2_img_list, bean_2_optflow, gts.getNames(),
+    #             conf_thresh=25/100, min_points=min_points, dist_thresh=min_dist)
     #         result = Evaluator().GetPascalVOCMetrics(
-    #             boxes=(gts + dets),
+    #             boxes=(gts + dets + dets2),
     #             thresh=5/100,
-    #             method=EvaluationMethod.Distance)["stem_maize"]
+    #             method=EvaluationMethod.Distance)["stem_bean"]
     #         (TP, FP, accuracies) = (result["total TP"], result["total FP"], result["accuracies"])
     #         nb_tp = result["total TP"]
     #         string = f"{min_points}, {min_dist}, {TP}, {FP}, {sum(accuracies) / nb_tp}"
@@ -1691,7 +1726,7 @@ if __name__ == "__main__":
     #         out.append(string)
     # out = "\n".join(out)
     
-    # with open("save/aggr_grid_search_maize_new.csv", "w") as f:
+    # with open("save/_aggr_grid_search_bean.csv", "w") as f:
     #     f.write(out)
 
     # DRAW CONSTELLATIONS
