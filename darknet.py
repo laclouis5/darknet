@@ -268,72 +268,42 @@ def classify(net, meta, im):
     res = sorted(res, key=lambda x: -x[1])
     return res
 
-def detect(net, meta, image, thresh=.5, hier_thresh=.5, nms=.45, debug= False):
-    """
-    Performs the meat of the detection
-    """
-    #pylint: disable= C0321
+def detect(net, meta, image, thresh=.5, hier_thresh=.5, nms=.45):
     im = load_image(image, 0, 0)
-    if debug: print("Loaded image")
-    ret = detect_image(net, meta, im, thresh, hier_thresh, nms, debug)
+    ret = detect_image(net, meta, im, thresh, hier_thresh, nms)
     free_image(im)
-    if debug: print("freed image")
     return ret
 
-def detect_image(net, meta, im, thresh=.5, hier_thresh=.5, nms=.45, debug=False):
-    #import cv2
-    #custom_image_bgr = cv2.imread(image) # use: detect(,,imagePath,)
-    #custom_image = cv2.cvtColor(custom_image_bgr, cv2.COLOR_BGR2RGB)
-    #custom_image = cv2.resize(custom_image,(lib.network_width(net), lib.network_height(net)), interpolation = cv2.INTER_LINEAR)
-    #import scipy.misc
-    #custom_image = scipy.misc.imread(image)
-    #im, arr = array_to_image(custom_image)		# you should comment line below: free_image(im)
+def detect_image(net, meta, im, thresh=.5, hier_thresh=.5, nms=.45):
     num = c_int(0)
-    if debug: print("Assigned num")
     pnum = pointer(num)
-    if debug: print("Assigned pnum")
     predict_image(net, im)
-    if debug: print("did prediction")
-    #dets = get_network_boxes(net, custom_image_bgr.shape[1], custom_image_bgr.shape[0], thresh, hier_thresh, None, 0, pnum, 0) # OpenCV
     dets = get_network_boxes(net, im.w, im.h, thresh, hier_thresh, None, 0, pnum, 0)
-    if debug: print("Got dets")
     num = pnum[0]
-    if debug: print("got zeroth index of pnum")
+
     if nms:
         do_nms_sort(dets, num, meta.classes, nms)
-    if debug: print("did sort")
-    res = []
-    if debug: print("about to range")
-    for j in range(num):
-        if debug: print("Ranging on "+str(j)+" of "+str(num))
-        if debug: print("Classes: "+str(meta), meta.classes, meta.names)
-        for i in range(meta.classes):
-            if debug: print("Class-ranging on "+str(i)+" of "+str(meta.classes)+"= "+str(dets[j].prob[i]))
-            if dets[j].prob[i] > 0:
-                b = dets[j].bbox
-                if altNames is None:
-                    nameTag = meta.names[i]
-                else:
-                    nameTag = altNames[i]
-                if debug:
-                    print("Got bbox", b)
-                    print(nameTag)
-                    print(dets[j].prob[i])
-                    print((b.x, b.y, b.w, b.h))
-                res.append((nameTag, dets[j].prob[i], (b.x, b.y, b.w, b.h)))
-    if debug: print("did range")
-    res = sorted(res, key=lambda x: -x[1])
-    if debug: print("did sort")
-    free_detections(dets, num)
-    if debug: print("freed detections")
-    return res
 
+    res = []
+    names = altNames or meta.names
+
+    for j in range(num):
+        det = dets[j]
+        for i in range(meta.classes):
+            p = det.prob[i]
+            if p > 0:
+                b = det.bbox
+                name_tag = names[i]
+                res.append((name_tag, p, (b.x, b.y, b.w, b.h)))
+    res.sort(key=lambda x: x[1], reverse=True)
+    free_detections(dets, num)
+    return res
 
 netMain = None
 metaMain = None
 altNames = None
 
-def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yolov4.cfg", weightPath = "yolov4.weights", metaPath= "./cfg/coco.data", showImage= True, makeImageOnly = False, initOnly= False):
+def performDetect(imagePath="data/dog.jpg", thresh=0.25, configPath="./cfg/yolov4.cfg", weightPath="yolov4.weights", metaPath="./cfg/coco.data", showImage=False, makeImageOnly=False, initOnly=False):
     """
     Convenience function to handle the detection and returns of objects.
 
@@ -382,20 +352,23 @@ def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yo
     """
     # Import the global variables. This lets us instance Darknet once, then just call performDetect() again without instancing again
     global metaMain, netMain, altNames #pylint: disable=W0603
-    assert 0 < thresh < 1, "Threshold should be a float between zero and one (non-inclusive)"
-    if not os.path.exists(configPath):
-        raise ValueError("Invalid config path `"+os.path.abspath(configPath)+"`")
-    if not os.path.exists(weightPath):
-        raise ValueError("Invalid weight path `"+os.path.abspath(weightPath)+"`")
-    if not os.path.exists(metaPath):
-        raise ValueError("Invalid data file path `"+os.path.abspath(metaPath)+"`")
+    
     if netMain is None:
+        if not os.path.exists(configPath):
+            raise ValueError("Invalid config path `"+os.path.abspath(configPath)+"`")
         netMain = load_net_custom(configPath.encode("ascii"), weightPath.encode("ascii"), 0, 1)  # batch size = 1
+
     if metaMain is None:
+        if not os.path.exists(weightPath):
+            raise ValueError("Invalid weight path `"+os.path.abspath(weightPath)+"`")
         metaMain = load_meta(metaPath.encode("ascii"))
+
     if altNames is None:
+        if not os.path.exists(metaPath):
+            raise ValueError("Invalid data file path `"+os.path.abspath(metaPath)+"`")
         # In Python 3, the metafile default access craps out on Windows (but not Linux)
         # Read the names file and create a list to feed to detect
+
         try:
             with open(metaPath) as metaFH:
                 metaContents = metaFH.read()
@@ -414,14 +387,18 @@ def performDetect(imagePath="data/dog.jpg", thresh= 0.25, configPath = "./cfg/yo
                     pass
         except Exception:
             pass
+
     if initOnly:
         print("Initialized detector")
         return None
+
     if not os.path.exists(imagePath):
         raise ValueError("Invalid image path `"+os.path.abspath(imagePath)+"`")
+    
     # Do the detection
-    #detections = detect(netMain, metaMain, imagePath, thresh)	# if is used cv2.imread(image)
+    assert 0 < thresh < 1, "Threshold should be a float between zero and one (non-inclusive)"
     detections = detect(netMain, metaMain, imagePath.encode("ascii"), thresh)
+    
     if showImage:
         try:
             from skimage import io, draw
@@ -548,11 +525,11 @@ class YoloModelPath:
         meta = files_with_extension(model_folder, ".data")[0]
 
         if not os.path.exists(cfg):
-            raise ValueError("Invalid config file path '{}'".format(cfg))
+            raise ValueError(f"Invalid config file path '{cfg}'")
         if not os.path.exists(weights):
-            raise ValueError("Invalid weights file path '{}'".format(weights))
+            raise ValueError(f"Invalid weights file path '{weights}'")
         if not os.path.exists(meta):
-            raise ValueError("Invalid metadata file path '{}'".format(meta))
+            raise ValueError(f"Invalid metadata file path '{meta}'")
 
         self.cfg = cfg
         self.weights = weights
@@ -579,11 +556,9 @@ def save_yolo_detections(network, file_dir, save_dir="", bbCoords=CoordinatesTyp
 
 
 def performDetectOnFolder(network, directory, conf_thresh=0.5/100):
-    """
-    Do not use parallel processing when using GPU.
-    """
     (cfg, model, obj) = network.get_cfg_weight_meta()
     images = files_with_extension(directory, ".jpg")
+    # images = sorted(images)[::30]
     boxes = BoundingBoxes()
 
     for image in tqdm(images, desc="Inference", unit="image"):
@@ -1622,9 +1597,12 @@ if __name__ == "__main__":
 
     # SAVE DARKNET DETECTION TO FILES
     folders = [os.path.join(f"/media/deepwater/DATA/Shared/Louis/datasets/training_set/2021-03-29_larrere/row_{i+1}") for i in range(4)]
+
     for folder in folders:
-        boxes = performDetectOnFolder(yolo, folder, conf_thresh=50/100)
-        boxes.save(type_coordinates=CoordinatesType.Relative, save_conf=False)
+        boxes = performDetectOnFolder(yolo, folder, conf_thresh=25/100)
+        boxes.mapLabels(en_to_fr)
+        boxes = BoundingBoxes([box for box in boxes if box.getClassId() in {"poireau", "poireau_tige"}])
+        boxes.save_xml()
 
     # FILTERING EVALUATION
     # label = "bean"

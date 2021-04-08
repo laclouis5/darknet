@@ -2,6 +2,8 @@ from enum import Enum
 import os
 import PIL
 from collections import defaultdict
+from pathlib import Path
+
 
 class MethodAveragePrecision(Enum):
     """
@@ -61,6 +63,7 @@ class BBFormat(Enum):
     XYX2Y2 = 1  # (x_min, y_min, x_max, y_max)
     XYC = 2  # (x_mid, y_mid, width, height)
 
+
 # Equivalent to xyx2y2_to_xywh()
 def convertToAbsCenterValues(xmin, ymin, xmax, ymax):
     x = (xmax + xmin) / 2.0
@@ -68,6 +71,7 @@ def convertToAbsCenterValues(xmin, ymin, xmax, ymax):
     w = xmax - xmin
     h = ymax - ymin
     return (x, y, w, h)
+
 
 def convertToRelativeValues(size, box):
     # box is (xmin, ymin, xmax, ymax)
@@ -78,6 +82,7 @@ def convertToRelativeValues(size, box):
 
     return (x, y, w, h)
 
+
 def convertToAbsoluteValues(size, box):
     # box is (x, y, w, h)
     xIn = (box[0] - box[2] / 2) * size[0]
@@ -87,20 +92,21 @@ def convertToAbsoluteValues(size, box):
 
     return (xIn, yIn, xEnd, yEnd)
 
+
 def files_with_extension(folder, extension):
     return [os.path.join(folder, item)
             for item in os.listdir(folder)
             if os.path.splitext(item)[1] == extension]
 
+
 def create_dir(directory):
     if not os.path.isdir(directory):
         os.mkdir(directory)
 
+
 def image_size(image):
-    """
-    (width, height)
-    """
     return PIL.Image.open(image).size
+
 
 def dictGrouping(iterable, key):
     d = defaultdict(list)

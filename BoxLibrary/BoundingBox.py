@@ -1,6 +1,7 @@
 from .utils import *
 from math import sqrt
 import copy
+from lxml import etree
 
 class BoundingBox:
     """
@@ -364,6 +365,35 @@ class BoundingBox:
             return f"{self._classId} {self._classConfidence} {box[0]} {box[1]} {box[2]} {box[3]}"
 
         return f"{self._classId} {box[0]} {box[1]} {box[2]} {box[3]}"
+
+    def xml_repr(self):
+        obj = etree.Element("object")
+        name = etree.Element("name")
+        name.text = f"{self._classId}"
+        obj.append(name)
+
+        xmin, ymin, xmax, ymax = self.getAbsoluteBoundingBox(format=BBFormat.XYX2Y2)
+        bbox = etree.Element("bndbox")
+
+        x_min = etree.Element("xmin")
+        x_min.text = f"{int(xmin)}"
+        bbox.append(x_min)
+
+        y_min = etree.Element("ymin")
+        y_min.text = f"{int(ymin)}"
+        bbox.append(y_min)
+
+        x_max = etree.Element("xmax")
+        x_max.text = f"{int(xmax)}"
+        bbox.append(x_max)
+
+        y_max = etree.Element("ymax")
+        y_max.text = f"{int(ymax)}"
+        bbox.append(y_max)
+
+        obj.append(bbox) 
+
+        return obj
 
     def addIntoImage(self, image, color=None, thickness=2):
         import cv2

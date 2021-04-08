@@ -18,6 +18,8 @@ from BoxLibrary import *
 from my_xml_toolbox import XMLTree
 # from test import egi_mask, cv_egi_mask, create_dir
 
+from pathlib import Path
+
 def create_operose_result(args):
     (image, save_dir, network_params, plants_to_keep) = args
 
@@ -164,7 +166,7 @@ def operose(txt_file, yolo, keep, thresh=0.25, save_dir="operose/", nproc=1):
             (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
             rect = [int(x) - radius, int(y) - radius, int(x) + radius, int(y) + radius]
 
-            out_name = f"Bipbip_{os.path.splitext(image_name)[0]}_{xml_tree.plant_count-1}.png"
+            out_name = f"{os.path.splitext(image_name)[0]}_{xml_tree.plant_count-1}.png"
 
             stem_mask = Image.new(mode="1", size=(img_w, img_h))
             stem_mask.paste(Image.new(mode="1", size=(radius*2, radius*2), color=1), rect)
@@ -176,11 +178,11 @@ def operose(txt_file, yolo, keep, thresh=0.25, save_dir="operose/", nproc=1):
         delayed(inner)(element) for element in boxes.getBoxesBy(lambda box: box.getImageName()).items())
 
 
-def operose_2(folder, keep, save_dir="~/Downloads/operose/", n_jobs=-1):
+def operose_2(folder, keep=None, save_dir="operose/", n_jobs=-1):
     def inner(element):
         (image, image_boxes) = element
 
-        image_name = os.path.basename(image)
+        image_name = Path(image).name
         (img_h, img_w) = cv.imread(image).shape[:2]
         radius = int(5/100 * min(img_w, img_h) / 2)
 
@@ -193,7 +195,7 @@ def operose_2(folder, keep, save_dir="~/Downloads/operose/", n_jobs=-1):
             (x, y, _, _) = box.getAbsoluteBoundingBox(BBFormat.XYC)
             rect = [int(x) - radius, int(y) - radius, int(x) + radius, int(y) + radius]
 
-            out_name = f"Bipbip_{os.path.splitext(image_name)[0]}_{xml_tree.plant_count-1}.png"
+            out_name = f"{Path(image).stem}_{xml_tree.plant_count-1}.png"
 
             stem_mask = Image.new(mode="1", size=(img_w, img_h))
             stem_mask.paste(Image.new(mode="1", size=(radius*2, radius*2), color=1), rect)
@@ -201,10 +203,12 @@ def operose_2(folder, keep, save_dir="~/Downloads/operose/", n_jobs=-1):
 
             xml_tree.save(save_dir)
 
-    boxes = Parser.parse_yolo_det_folder(folder, folder, classes=[keep])
+    create_dir(save_dir)
+    boxes = Parser.parse_yolo_det_folder(folder, folder, classes=keep)
+    boxes_by_name = boxes.getBoxesBy(lambda box: box.getImageName())
 
     Parallel(n_jobs, verbose=10)(
-        delayed(inner)(element) for element in boxes.getBoxesBy(lambda box: box.getImageName()).items())
+        delayed(inner)(element) for element in boxes_by_name.items())
 
 
 def calibrate_folder(folder, save_dir="calibrated/", n_proc=-1):
@@ -243,26 +247,8 @@ def main():
 
 
 if __name__ == "__main__":
-    folders = [
-        "/media/deepwater/Samsung_T5/bipbip/bean_1",
-        "/media/deepwater/Samsung_T5/bipbip/bean_2",
-        "/media/deepwater/Samsung_T5/bipbip/bean_3",
-        "/media/deepwater/Samsung_T5/bipbip/maize",
-    ]
-
-    keeps = ["stem_bean", "stem_bean", "stem_bean", "stem_maize"]
-
-    for (folder, keep) in zip(folders, keeps):
-        create_dir("/media/deepwater/Samsung_T5/bipbip/operose/")
-        save_dir = os.path.join(
-            "/media/deepwater/Samsung_T5/bipbip/operose/",
-            os.path.relpath(folder, "/media/deepwater/Samsung_T5/bipbip/"))
-        create_dir(save_dir)
-        operose_2(folder, keep, save_dir)
-
-    # yolo = YoloModelPath("results/yolov4-tiny_8/")
-    # folder = folders[3]
-    # keep = "stem_maize"
-    # create_image_list_file(folder)
-    # txt_file = os.path.join(folder, "image_list.txt")
-    # operose(txt_file, yolo, keep, thresh=0.25, save_dir="operose/", nproc=-1)
+    folder = "/media/deepwater/DATA/Shared/Louis/datasets/test_set/"
+    yolo = YoloModelPath("results/yolov4-tiny_10")
+    # boxes = performDetectOnFolder(yolo, folder, conf_thresh=25/100)
+    # boxes.save()
+    operose_2(folder, save_dir="operose_test/")

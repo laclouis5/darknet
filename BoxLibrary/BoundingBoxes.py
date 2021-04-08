@@ -10,6 +10,10 @@ import cv2 as cv
 from joblib import Parallel, delayed
 from tqdm import tqdm
 
+from lxml import etree
+from pathlib import Path
+
+
 class BoundingBoxes(MutableSequence):
     def __init__(self, bounding_boxes=None):
         self._boundingBoxes = bounding_boxes or []
@@ -233,6 +237,48 @@ class BoundingBoxes(MutableSequence):
 
             with open(fileName, "w") as f:
                 f.write(description)
+
+    def save_xml(self, save_dir=None):
+        boxes_by_name = dictGrouping(self, lambda box: box.getImageName())
+
+        for image_path, bounding_boxes in tqdm(boxes_by_name.items(), desc="Saving", unit="image"):
+            annotation = etree.Element("annotation")
+            
+            image_path = Path(image_path)
+            image_name = image_path.name
+            folder = image_path.parent.name
+            xml_path = image_path.with_suffix(".xml")
+
+            if save_dir:
+                xml_path = Path(save_dir) / xml_path.name
+
+            path_node = etree.Element("path")
+            path_node.text = f"{xml_path}"
+            annotation.append(path_node)
+
+            image_name_node = etree.Element("filename")
+            image_name_node.text = f"{image_name}"
+            annotation.append(image_name_node)
+
+            folder_node = etree.Element("folder")
+            folder_node.text = f"{folder}"
+            annotation.append(folder_node)
+
+            img_w, img_h = bounding_boxes[0].getImageSize()
+            size_node = etree.Element("size")
+            img_w_node = etree.Element("width")
+            img_h_node = etree.Element("height")
+            depth_node = etree.Element("depth")
+            img_w_node.text = f"{int(img_w)}"
+            img_h_node.text = f"{int(img_h)}"
+            depth_node.text = "3"
+            size_node.extend((img_w_node, img_h_node, depth_node))
+            annotation.append(size_node)
+
+            for bounding_box in bounding_boxes:
+                annotation.append(bounding_box.xml_repr())
+
+            xml_path.write_text(etree.tostring(annotation, pretty_print=True, encoding=str))
 
     def squareStemBoxes(self, ratio=0.075):
         boxes = BoundingBoxes()
