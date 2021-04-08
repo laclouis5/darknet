@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-from xml.etree.ElementTree import parse
+from xml.etree.ElementTree import parse, ParseError
 from pathlib import Path
 from argparse import ArgumentParser
 
@@ -8,18 +8,24 @@ CROP_TYPES = {"Adventice", "PlanteInteret"}
 DOC_TAG = "xml"
 
 
-def check(xml_path, mask_path, img_path, mask_ext):
-	for xml_file in xml_path.glob("*.xml"):	
+def check(xml_dir, mask_dir, img_dir, mask_ext):
+	for xml_file in xml_dir.glob("*.xml"):	
 		try:
 			root = parse(xml_file).getroot().find("DL_DOCUMENT")
 
-			img_name = Path(root.attrib["src"])
-			if img_name.stem != xml_file.stem:
+			src = root.attrib["src"]
+			img_name = Path(src).name
+			if img_name != src:
+				print(f"Image source '{src}' in XML file '{xml_file.name}' is not a filename")
+				continue
+
+			img_file = img_dir / img_name
+			if img_file.stem != xml_file.stem:
 				print(f"XML file '{xml_file.name}' does not have the same identifier as the source '{img_name}'")
 				continue
 
-			if not (img_path / img_name).is_file():
-				print(f"Image source '{img_name}' for XML file '{xml_file.name}' not found in folder '{img_path}'")
+			if not img_file.is_file():
+				print(f"Image source '{img_name}' for XML file '{xml_file.name}' not found in folder '{img_dir}'")
 
 			doc_tag = root.attrib["docTag"]
 			if doc_tag != DOC_TAG:
@@ -44,12 +50,12 @@ def check(xml_path, mask_path, img_path, mask_ext):
 				if crop_type not in CROP_TYPES:
 					print(f"'{crop_type}' for mask with id '{mask_id}' is not a valid type for XML file '{xml_file.name}'")
 
-				mask_file = (mask_path / f"{img_name.stem}_{mask_id}").with_suffix(mask_ext)
+				mask_file = (mask_dir / f"{img_file.stem}_{mask_id}").with_suffix(mask_ext)
 				if not mask_file.is_file():
-					print(f"'{mask_file.name}' not found in folder '{mask_path}'")
+					print(f"'{mask_file.name}' not found in folder '{mask_dir}'")
 									
 
-		except ET.ParseError as error:
+		except ParseError as error:
 			print(f"Error: ill-formed XML file '{xml_file.name}'")
 			print(error)
 
