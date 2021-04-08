@@ -3,13 +3,13 @@
 from xml.etree.ElementTree import parse
 from pathlib import Path
 from argparse import ArgumentParser
-from tqdm import tqdm
 
 CROP_TYPES = {"Adventice", "PlanteInteret"}
 DOC_TAG = "xml"
 
-def check(xml_path, mask_path, img_path, mask_ext):  # sourcery no-metrics
-	for xml_file in tqdm(list(xml_path.glob("*.xml")), desc="Validation", unit="file"):	
+
+def check(xml_path, mask_path, img_path, mask_ext):
+	for xml_file in xml_path.glob("*.xml"):	
 		try:
 			root = parse(xml_file).getroot().find("DL_DOCUMENT")
 
@@ -27,10 +27,11 @@ def check(xml_path, mask_path, img_path, mask_ext):  # sourcery no-metrics
 
 			try:
 				img_w, img_h = int(root.attrib["width"]), int(root.attrib["height"])
+				if img_w <= 0 or img_h <= 0:
+					print(f"Image size should be greater than 0 for XML file '{xml_file.name}'")
+
 			except ValueError as error:
 				print(f"Invalid image width or height for XML file '{xml_file.name}'")
-			if img_w <= 0 or img_h <= 0:
-				print(f"Image size should be greater than 0 for XML file '{xml_file.name}'")
 
 			for mask in root.findall("MASQUE_ZONE"):
 				try:
@@ -55,6 +56,7 @@ def check(xml_path, mask_path, img_path, mask_ext):  # sourcery no-metrics
 		except KeyError as error:
 			print(f"Attribute {error} in XML file '{xml_file.name}' not found")
 
+
 def parse_args():
 	parser = ArgumentParser("Check XML files structure for the Operose Challenge")
 
@@ -72,6 +74,9 @@ def parse_args():
 
 	return args
 
+
 if __name__ == "__main__":
 	args = parse_args()
 	check(args.xml_dir, args.mask_dir, args.img_dir, args.mask_ext)
+
+	print("Validation done")
