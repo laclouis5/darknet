@@ -18,6 +18,7 @@ from BoxLibrary import *
 from my_xml_toolbox import XMLTree
 # from test import egi_mask, cv_egi_mask, create_dir
 
+
 def create_operose_result(args):
     (image, save_dir, network_params, plants_to_keep) = args
 

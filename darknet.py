@@ -56,6 +56,7 @@ from sort import *
 from tqdm.contrib import tenumerate
 from tqdm import tqdm
 
+
 def sample(probs):
     s = sum(probs)
     probs = [a/s for a in probs]
