@@ -8,6 +8,7 @@ from .BoundingBox import BoundingBox
 from .BoundingBoxes import BoundingBoxes
 from .utils import *
 
+
 class Evaluator:
     cocoThresholds = [thresh / 100 for thresh in range(50, 100, 5)]
 
@@ -141,7 +142,7 @@ class Evaluator:
         recall = tot_tp / tot_npos
         precision = tot_tp / (tot_tp + tot_fp)
         f1 = 2 * recall * precision / (recall + precision)
-        accuracy = accuracy / tot_tp
+        accuracy /= tot_tp
 
         print("Global stats: ")
         print("  recall: {:.2%}, precision: {:.2%}, f1: {:.2%}, acc: {:.2%}".format(recall, precision, f1, accuracy))
@@ -218,7 +219,7 @@ class Evaluator:
                         if r not in nrec:
                             idxEq = np.argwhere(mrec == r)
                             nrec.append(r)
-                            nprec.append(max([mpre[int(id)] for id in idxEq]))
+                            nprec.append(max(mpre[int(id)] for id in idxEq))
                     plt.plot(nrec, nprec, "or", label="11-point interpolated precision")
             plt.plot(recall, precision, label="Precision")
             plt.xlabel("recall")
@@ -242,22 +243,15 @@ class Evaluator:
 
     @staticmethod
     def CalculateAveragePrecision(rec, prec):
-        mrec = []
-        mrec.append(0)
+        mrec = [0]
         [mrec.append(e) for e in rec]
         mrec.append(1)
-        mpre = []
-        mpre.append(0)
+        mpre = [0]
         [mpre.append(e) for e in prec]
         mpre.append(0)
         for i in range(len(mpre) - 1, 0, -1):
             mpre[i - 1] = max(mpre[i - 1], mpre[i])
-        ii = []
-        for i in range(len(mrec) - 1):
-            if mrec[1:][i] != mrec[0:-1][i]:
-                ii.append(i + 1)
-        ap = 0
-        for i in ii:
-            ap = ap + np.sum((mrec[i] - mrec[i - 1]) * mpre[i])
+        ii = [i + 1 for i in range(len(mrec) - 1) if mrec[1:][i] != mrec[0:-1][i]]
+        ap = sum(np.sum((mrec[i] - mrec[i - 1]) * mpre[i]) for i in ii)
         # return [ap, mpre[1:len(mpre)-1], mrec[1:len(mpre)-1], ii]
-        return [ap, mpre[0:len(mpre) - 1], mrec[0:len(mpre) - 1], ii]
+        return [ap, mpre[0:-1], mrec[0:len(mpre) - 1], ii]

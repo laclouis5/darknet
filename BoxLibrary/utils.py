@@ -3,6 +3,7 @@ import os
 import PIL
 from collections import defaultdict
 
+
 class MethodAveragePrecision(Enum):
     """
     Class representing if the coordinates are relative to the

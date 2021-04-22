@@ -30,6 +30,7 @@ from tqdm import tqdm
 
 from functools import reduce
 
+
 class Tracker:
 
     def __init__(self, min_confidence, min_points, dist_thresh):
