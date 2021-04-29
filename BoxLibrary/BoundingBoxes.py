@@ -47,7 +47,7 @@ class BoundingBoxes(MutableSequence):
         Returns:
             [str]: The sorted list of clas ids.
         """
-        return sorted(set(box.getClassId() for box in self))
+        return sorted({box.getClassId() for box in self})
 
     def getNames(self):
         """
@@ -56,7 +56,7 @@ class BoundingBoxes(MutableSequence):
         Returns:
             [str]: The sorted list of image names.
         """
-        return sorted(set(box.getImageName() for box in self))
+        return sorted({box.getImageName() for box in self})
 
     def getBoundingBoxesByType(self, bbType):
         return BoundingBoxes([d for d in self if d.getBBType() == bbType])
@@ -295,10 +295,11 @@ class BoundingBoxes(MutableSequence):
         return boxes
 
     def plotHistogram(self):
-        areas = []
         boxes_by_label = self.getBoxesBy(lambda box: box.getClassId())
-        for (label, boxes) in boxes_by_label.items():
-            areas.append([bbox.getArea() for bbox in boxes])
+        areas = [
+            [bbox.getArea() for bbox in boxes]
+            for (label, boxes) in boxes_by_label.items()]
+
         # plt.hist(areas, bins=200, stacked=True, density=True, label=labels)
         # plt.hist([bbox.getArea() for bbox in boxes], bins=100)
         plt.title('Stacked histogram of bounding box area')

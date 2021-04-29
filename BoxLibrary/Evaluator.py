@@ -8,6 +8,7 @@ from .BoundingBox import BoundingBox
 from .BoundingBoxes import BoundingBoxes
 from .utils import *
 
+
 class Evaluator:
     cocoThresholds = [thresh / 100 for thresh in range(50, 100, 5)]
 

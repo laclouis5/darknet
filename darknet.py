@@ -57,15 +57,16 @@ from sort import *
 from tqdm.contrib import tenumerate
 from tqdm import tqdm
 
+
 def sample(probs):
     s = sum(probs)
     probs = [a/s for a in probs]
     r = random.uniform(0, 1)
-    for i in range(len(probs)):
-        r = r - probs[i]
+    for i, p in enumerate(probs):
+        r = r - p
         if r <= 0:
             return i
-    return len(probs)-1
+    return len(probs) - 1
 
 def c_array(ctype, values):
     arr = (ctype*len(values))()
@@ -111,9 +112,7 @@ if os.name == "nt":
     os.environ['PATH'] = cwd + ';' + os.environ['PATH']
     winGPUdll = os.path.join(cwd, "yolo_cpp_dll.dll")
     winNoGPUdll = os.path.join(cwd, "yolo_cpp_dll_nogpu.dll")
-    envKeys = list()
-    for k, v in os.environ.items():
-        envKeys.append(k)
+    envKeys = [k for k, v in os.environ.items()]
     try:
         try:
             tmp = os.environ["FORCE_CPU"].lower()
@@ -123,17 +122,19 @@ if os.name == "nt":
                 print("Flag value '"+tmp+"' not forcing CPU mode")
         except KeyError:
             # We never set the flag
-            if 'CUDA_VISIBLE_DEVICES' in envKeys:
-                if int(os.environ['CUDA_VISIBLE_DEVICES']) < 0:
-                    raise ValueError("ForceCPU")
+            if (
+                'CUDA_VISIBLE_DEVICES' in envKeys
+                and int(os.environ['CUDA_VISIBLE_DEVICES']) < 0
+            ):
+                raise ValueError("ForceCPU")
             try:
                 global DARKNET_FORCE_CPU
                 if DARKNET_FORCE_CPU:
                     raise ValueError("ForceCPU")
             except NameError:
                 pass
-            # print(os.environ.keys())
-            # print("FORCE_CPU flag undefined, proceeding with GPU")
+                    # print(os.environ.keys())
+                    # print("FORCE_CPU flag undefined, proceeding with GPU")
         if not os.path.exists(winGPUdll):
             raise ValueError("NoDLL")
         lib = CDLL(winGPUdll, RTLD_GLOBAL)
@@ -261,10 +262,7 @@ def classify(net, meta, im):
     out = predict_image(net, im)
     res = []
     for i in range(meta.classes):
-        if altNames is None:
-            nameTag = meta.names[i]
-        else:
-            nameTag = altNames[i]
+        nameTag = meta.names[i] if altNames is None else altNames[i]
         res.append((nameTag, out[i]))
     res = sorted(res, key=lambda x: -x[1])
     return res
@@ -375,10 +373,7 @@ def performDetect(imagePath="data/dog.jpg", thresh=0.25, configPath="./cfg/yolov
                 metaContents = metaFH.read()
                 import re
                 match = re.search("names *= *(.*)$", metaContents, re.IGNORECASE | re.MULTILINE)
-                if match:
-                    result = match.group(1)
-                else:
-                    result = None
+                result = match.group(1) if match else None
                 try:
                     if os.path.exists(result):
                         with open(result) as namesFH:
@@ -465,13 +460,7 @@ def convertBack(x, y, w, h):
 def get_classes(obj):
     metadata = load_meta(obj.encode("ascii"))
     nb_classes = metadata.classes
-
-    labels = []
-
-    for i in range(nb_classes):
-        labels.append(metadata.names[i].decode())
-
-    return labels
+    return [metadata.names[i].decode() for i in range(nb_classes)]
 
 # from BoundingBox import BoundingBox
 # from BoundingBoxes import BoundingBoxes

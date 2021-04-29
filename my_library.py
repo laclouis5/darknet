@@ -117,11 +117,7 @@ class Tracker:
                 else:
                     ignored.add(i)
 
-        if len(matches) == 0:
-            matches = np.empty((0, 2), dtype=int)
-        else:
-            matches = np.array(matches)
-
+        matches = np.empty((0, 2), dtype=int) if not matches else np.array(matches)
         unmatched_dets = [d for d in range(len(detections)) if d not in matches[:, 0] and d not in ignored]
         unmatched_tracks = [t for t in range(len(tracks)) if t not in matches[:, 1]]
 
@@ -508,8 +504,7 @@ def convert_to_grayscale(image):
     '''
     Convert an image (numpy array) to grayscale.
     '''
-    frame = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
-    return frame
+    return cv.cvtColor(image, cv.COLOR_BGR2GRAY)
 
 
 def optical_flow(image_1, image_2, prev_opt_flow=None):
@@ -705,18 +700,17 @@ class OpticalFlow:
         return eq_x, eq_y
 
     def mask(self, img1, img2):
-        if self.mask_egi:
-            egi1 = self.egi_mask(img1)
-            egi2 = self.egi_mask(img2)
-            egi = egi1 & egi2
-
-            if self.mask_border:
-                return self.get_border_mask(img1.shape[:2]) & egi
-            else:
-                return egi
-
-        else:
+        if not self.mask_egi:
             return self.get_border_mask(img1.shape[:2])
+
+        egi1 = self.egi_mask(img1)
+        egi2 = self.egi_mask(img2)
+        egi = egi1 & egi2
+
+        if self.mask_border:
+            return self.get_border_mask(img1.shape[:2]) & egi
+        else:
+            return egi
 
     def egi_mask(self, img):
         egi = np.uint8(egi_mask(img) * 255)
@@ -800,7 +794,7 @@ class OpticalFlow:
             data += line
             past_image = current_image
 
-        save_dir = save_dir if save_dir else "save/"
+        save_dir = save_dir or "save/"
         create_dir(save_dir)
 
         with open(os.path.join(save_dir, name), "w") as f:
@@ -1010,7 +1004,7 @@ def cv_egi_mask(image, thresh=40):
 
     img_out = np.zeros_like(output, dtype=np.uint8)
 
-    for i in range(0, nb_components):
+    for i in range(nb_components):
         if sizes[i] >= 500:
             img_out[output == i + 1] = 255
 
@@ -1328,17 +1322,16 @@ def crop_detection_to_square(image_path, save_dir, model, config_file, meta_file
             (x, y, w, h) = (x / img_w, y / img_h, w / img_w, h / img_h)
 
             # If bbox is not out of the new square frame
-            if not (x * img_w < w_lim_1 or x * img_w > w_lim_2):
-                # But if bbox spans out of one bound (l or r)
-                if x - w / 2.0 < float(w_lim_1) / img_w:
-                    # Then adjust bbox to fit in the square
-                    w = w - (float(w_lim_1) / img_w - (x - w / 2.0))
-                    x = float(w_lim_1 + 1) / img_w + w / 2.0
-                if x + w / 2.0 > float(w_lim_2) / img_w:
-                    w = w - (x + w / 2.0 - float(w_lim_2) / img_w)
-                    x = float(w_lim_2) / img_w - w / 2.0
+            if (x * img_w < w_lim_1 or x * img_w > w_lim_2): continue
 
-            else: continue
+            # But if bbox spans out of one bound (l or r)
+            if x - w / 2.0 < float(w_lim_1) / img_w:
+                # Then adjust bbox to fit in the square
+                w = w - (float(w_lim_1) / img_w - (x - w / 2.0))
+                x = float(w_lim_1 + 1) / img_w + w / 2.0
+            if x + w / 2.0 > float(w_lim_2) / img_w:
+                w = w - (x + w / 2.0 - float(w_lim_2) / img_w)
+                x = float(w_lim_2) / img_w - w / 2.0
 
             # Do not forget to convert from old coord sys to new one
             x = (x * img_w - float(w_lim_1)) / float(w_lim_2 - w_lim_1)
@@ -1368,8 +1361,7 @@ def clip_box_to_size(box, size):
 
     # Max length
     l = max(w, h)
-    if l >= min(im_w, im_h):
-        l = min(im_w, im_h)
+    l = min(l, min(im_w, im_h))
 
     # Make it square, expand a little
     new_x = x

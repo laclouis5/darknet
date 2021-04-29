@@ -3,6 +3,7 @@ from math import sqrt
 import copy
 from lxml import etree
 
+
 class BoundingBox:
     """
     Represents a bounding box with a classId, associated to an image name and with an optional confidence.

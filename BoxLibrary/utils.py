@@ -5,6 +5,7 @@ from collections import defaultdict
 from pathlib import Path
 
 
+
 class MethodAveragePrecision(Enum):
     """
     Class representing if the coordinates are relative to the
