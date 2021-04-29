@@ -45,6 +45,7 @@ except:
 from PIL import Image
 from skimage import io, filters, morphology
 from joblib import Parallel, delayed
+from pathlib import Path
 
 # from my_library import read_detection_txt_file, save_yolo_detect_to_txt, yolo_det_to_bboxes, save_bboxes_to_txt, nms, create_dir, parse_yolo_folder, xyx2y2_to_xywh, xywh_to_xyx2y2, remap_yolo_GT_file_labels, remap_yolo_GT_files_labels, clip_box_to_size, optical_flow, convert_to_grayscale, egi_mask, Track, Tracker, associate_boxes_with_image, gts_in_unique_ref, optical_flow_visualisation, evaluate_aggr, read_image_txt_file, associate_tracks_with_image, draw_tracked_confidence_ellipse, OpticalFlow, Equation, move_gts_in_unique_ref, normalized
 from my_library import *
@@ -1499,8 +1500,11 @@ if __name__ == "__main__":
     # model_path = "results/yolov4-tiny_stem_classif_2"
 
     # model_path = "results/yolov4_7/"  # BDD 8.2 norm stems
-    model_path = "results/yolov4-tiny_10/"  # BDD 8.2 norm stems  <-- Current best
+    # model_path = "results/yolov4-tiny_10/"  # BDD 8.2 norm stems  <-- Current best
     # model_path = "results/yolov3-tiny_3l_15/"  # BDD 8.2 norm stems
+    # model_path = "results/yolov4-tiny_11/"  # BDD 9.0 norm stems
+    # model_path = "results/yolov4-tiny_12/"  # BDD 9.0 norm stems 5.0
+    model_path = "results/yolov4-tiny_13/"  # BDD 9.0 norm stems 2.5
 
     # model_path = "results/yolov4-tiny_stem/"
 
@@ -1513,8 +1517,8 @@ if __name__ == "__main__":
     save_dir = 'save/'
     labels_to_names = ['maize', 'bean', 'leek', 'stem_maize', 'stem_bean', 'stem_leek']
     label_to_number = {'maize': 0, 'bean': 1, 'leek': 2, 'stem_maize': 3, 'stem_bean': 4, 'stem_leek': 5}
-    # number_to_label = {0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"}
-    number_to_label = {0: "stem_maize", 1: "stem_bean"}
+    number_to_label = {0: "maize", 1: "bean", 2: "leek", 3: "stem_maize", 4: "stem_bean", 5: "stem_leek"}
+    # number_to_label = {0: "stem_maize", 1: "stem_bean"}
     fr_to_en = {"mais": "maize", "haricot": "bean", "poireau": "leek", "mais_tige": "stem_maize", "haricot_tige": "stem_bean", "poireau_tige": "stem_leek"}
     en_to_fr = {"maize": "mais", "bean": "haricot", "leek": "poireau", "stem_maize": "mais_tige", "stem_bean": "haricot_tige", "stem_leek": "poireau_tige"}
 
@@ -1523,86 +1527,19 @@ if __name__ == "__main__":
     # dets.drawAll(save_dir="stem_classif")
 
     # COMPUTE MAP
-    labels = ["stem_maize", "stem_bean"]
-    # labels = ["maize", "bean", "leek", "stem_maize", "stem_bean", "stem_leek"]
-    # labels = [f"maize_{i}" for i in range(10)]
-    # labels += [f"bean_{i}" for i in range(10)]
-    # number_to_label = {i: label for (i, label) in enumerate(labels)}
-    # gts = Parser.parse_yolo_gt_folder(val_path)
-    # gts.mapLabels(number_to_label)
-    # gts = gts.getBoundingBoxByClass(labels)
-
-    # dets = performDetectOnFolder(yolo, val_path, conf_thresh=25/100)
-    # dets = dets.getBoundingBoxByClass(labels)
-
-    # Evaluator().printAPs(gts + dets)
-    # Evaluator().printAPsByClass(gts + dets, 
-    #     thresh=5/100, 
-    #     method=EvaluationMethod.Distance)
-    
-    # thresholds = np.linspace(0.005, 0.95, 20)
-    # recalls = []
-    # precisions = []
-    # f1_scores = []
-    # from tqdm import tqdm
-    # for thresh in tqdm(thresholds, desc="Evaluation"):
-    #     dets = performDetectOnFolder(yolo, val_path, conf_thresh=thresh, n_proc=1)
-    #     dets = dets.getBoundingBoxByClass(labels)
-
-    #     # Evaluator().printAPs(gts + dets)
-    #     # Evaluator().printAPsByClass(gts + dets, thresh=0.04, method=EvaluationMethod.Distance)
-    #     (rec, prec, f1) = Evaluator().printAPsByClass(gts + dets, thresh=4/100, method=EvaluationMethod.Distance)
-    #     recalls.append(rec)
-    #     precisions.append(prec)
-    #     f1_scores.append(f1)
-
-    # fig, ax = plt.subplots(2, 1)
-    # ax[0].plot(recalls, precisions)
-    # ax[1].plot(thresholds, f1_scores)
-    # plt.show()
-
-    # with open("grid_search_yolo.csv", "w") as f:
-    #     f.write("t_conf, recall, precision, f1-score\n")
-    #     for (thresh, rec, prec, f1) in zip(thresholds, recalls, precisions, f1_scores):
-    #         f.write(f"{thresh}, {rec}, {prec}, {f1}\n")
-
-    # folders = [
-    #     "/media/deepwater/Samsung_T5/bipbip/bean_1",
-    #     "/media/deepwater/Samsung_T5/bipbip/bean_2",
-    #     "/media/deepwater/Samsung_T5/bipbip/bean_3",
-    #     "/media/deepwater/Samsung_T5/bipbip/maize",
-    # ]
-
-    # keeps = ["stem_bean", "stem_bean", "stem_bean", "stem_maize"]
-
-    # for (folder, keep) in zip(folders, keeps):
-    #     boxes = performDetectOnFolder(yolo, folder, 0.25)
-    #     boxes.save()
-
-    # detect_and_track_aggr_visu(yolo, bean_long, bean_opt_flow, "stem_bean", conf_thresh=0.25)
-    # point_cloud_visu(yolo, bean_long, bean_opt_flow, "stem_bean")
-    # optical_flow_visualisation(bean_long)
-    # OpticalFlow.generate(maize_long,
-    #     name="data/opt_flow_mais_better.txt", masking_border=True, mask_egi=True)
-    # OpticalFlow.generate_plane(bean_long,
-    #     name="data/opt_flow_haricot_plane.txt", mask_border=True, mask_egi=True)
-    # planes = OpticalFlow.read_planes("data/opt_flow_haricot_plane.txt")
-    # flow = OpticalFlow.traverse_backward(planes, 0, 0)
-    # print(flow)
-    # print(planes)
-    # boxes = performDetectOnFolder(yolo, bean_seq_folder)
-    # drawConstellationFlatBoxes(bean_seq, boxes, bean_seq_folder, bean_seq_flow, "stem_bean")
-    # drawConstellationFlat(bean_long, bean_long_folder, bean_opt_flow, en_to_fr["stem_bean"])
-    # drawConstellationFlat(maize_long, maize_long_folder, maize_opt_flow, en_to_fr["stem_maize"])
+    detections = performDetectOnFolder(yolo, val_path, conf_thresh=25/100)
+    gts = Parser.parse_yolo_gt_folder(val_path)
+    gts.mapLabels(number_to_label)
+    Evaluator().printF1ByClass(detections + gts, threshold=5/100, method=EvaluationMethod.Distance)
 
     # SAVE DARKNET DETECTION TO FILES
-    folders = [os.path.join(f"/media/deepwater/DATA/Shared/Louis/datasets/training_set/2021-03-29_larrere/row_{i+1}") for i in range(4)]
+    # folders = [os.path.join(f"/media/deepwater/DATA/Shared/Louis/datasets/training_set/2021-03-29_larrere/row_{i+1}") for i in range(4)]
 
-    for folder in folders:
-        boxes = performDetectOnFolder(yolo, folder, conf_thresh=25/100)
-        boxes.mapLabels(en_to_fr)
-        boxes = BoundingBoxes([box for box in boxes if box.getClassId() in {"poireau", "poireau_tige"}])
-        boxes.save_xml()
+    # for folder in folders:
+    #     boxes = performDetectOnFolder(yolo, folder, conf_thresh=25/100)
+    #     boxes.mapLabels(en_to_fr)
+    #     boxes = BoundingBoxes([box for box in boxes if box.getClassId() in {"poireau", "poireau_tige"}])
+    #     boxes.save_xml()
 
     # FILTERING EVALUATION
     # label = "bean"

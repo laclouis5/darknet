@@ -8,7 +8,6 @@ from tqdm.contrib import tenumerate, tzip
 import torch
 from torch.nn.functional import max_pool2d
 
-
 def read_image_file(path):
     with path.open() as f:
         data = f.readlines()
@@ -44,9 +43,6 @@ def annotation_for_image(path):
         return read_annotation(path)
     except: 
         return None
-
-# def read_mat_file(path):
-#     return loadmat(path)["heatmaps"][0]  # Bean heatmap
 
 def read_image(path, reshape_size):
     img = Image.open(path).resize(reshape_size)
@@ -188,6 +184,15 @@ def inference(mosaic, kernel_size=5, conf_threshold=25/100, k=200):
         if score < conf_threshold:
             return output[:, :idx].t()  # (K, 3)
 
+def color_wheel(size=512):
+    half_size = float(size / 2.0)
+    X, Y = np.meshgrid(np.arange(size), np.arange(size))
+    X = X.astype(float) - half_size
+    Y = Y.astype(float) - half_size
+    X /= half_size
+    Y /= half_size
+    return (np.arctan2(Y, X) / np.pi + 1.0) / 2.0
+
 if __name__ == "__main__":
     folder = Path("/media/deepwater/DATA/Shared/Louis/datasets/tache_detection/haricot")
     image_file = folder / "image_list.txt"
@@ -203,16 +208,20 @@ if __name__ == "__main__":
     annotations = np.load("save/annotations.npy")
     panorama = Image.open("save/panorama.jpg")
 
-    mosaic, part_mosaic, emb_mosaic, off_mosaic, annotations = create_mosaic(images, flows)
+    # mosaic, part_mosaic, emb_mosaic, off_mosaic, annotations = create_mosaic(images, flows)
     # panorama = create_panorama(images, flows, (1024, 1024))
     result = inference(mosaic, conf_threshold=25/100)
     mosaic_img = Image.fromarray(mosaic.sum(axis=0) * 255)
     part_mosaic_img = Image.fromarray(part_mosaic.sum(axis=0) * 255)
     (m_w, m_h) = mosaic_img.size
-    mosaic_img = mosaic_img.resize((m_w*8, m_h*8))
-    part_mosaic_img = part_mosaic_img.resize((m_w*8, m_h*8))
-    emb_norm = np.sqrt(emb_mosaic[1, ...]**2 + emb_mosaic[0, ...]**2)
-    off_norm = np.sqrt(off_mosaic[1, ...]**2 + off_mosaic[0, ...]**2)
+    panorama = panorama.resize((m_w, m_h), 2) 
+    emb_norm = np.hypot(emb_mosaic[0], emb_mosaic[1])
+    off_norm = np.hypot(off_mosaic[0], off_mosaic[1])
+    emb_angle = np.arctan2(emb_mosaic[1], emb_mosaic[0]) / np.pi / 2 + 0.5
+    h, w = emb_mosaic.shape[1:]
+    grid_y, grid_x = torch.meshgrid(torch.arange(h), torch.arange(w))
+    emb_points = torch.from_numpy(emb_mosaic) + torch.stack((grid_x, grid_y), dim=0)
+    emb_points = emb_points.flatten(start_dim=1)
 
     # np.save("save/mosaic.npy", mosaic)
     # np.save("save/part_mosaic.npy", part_mosaic)
@@ -221,13 +230,17 @@ if __name__ == "__main__":
     # np.save("save/annotations.npy", annotations)
     # Image.fromarray(panorama).save("save/panorama.jpg")
 
-    fig, axes = plt.subplots(5, 1, gridspec_kw={"left": .05, "right": .95})
-    axes[0].imshow(mosaic_img)
-    axes[1].imshow(panorama)
-    axes[1].scatter(annotations[:, 0]*8, annotations[:, 1]*8, c="red", label="Ground truths")
-    axes[1].scatter(result[:, 0]*8, result[:, 1]*8, c="blue", label="Predictions")
-    axes[2].imshow(emb_norm)
-    axes[3].imshow(off_norm)
-    axes[4].imshow(part_mosaic_img)
-    plt.legend()
+    fig, axes = plt.subplots(3, 1, sharex=True, sharey=True, gridspec_kw={"left": .1, "right": .95})
+    axes[0].imshow(panorama)
+    axes[0].scatter(annotations[:, 0], annotations[:, 1], s=3, c="red", label="Ground truths")
+    axes[0].scatter(result[:, 0], result[:, 1], s=3, c="blue", label="Predictions")
+    axes[1].imshow(emb_norm)
+    axes[1].scatter(annotations[:, 0], annotations[:, 1], s=3, c="red", label="Ground truths")
+    axes[2].imshow(emb_angle, cmap="hsv")
+    axes[2].scatter(annotations[:, 0], annotations[:, 1], s=3, c="black", label="Ground truths")
+    # axes[4].imshow(panorama)
+    # axes[4].scatter(emb_points[0], emb_points[1], s=0.5, c="red")
+    # axes[3].imshow(off_norm)
+    # axes[4].imshow(part_mosaic_img)
+    # plt.legend()
     plt.show()
