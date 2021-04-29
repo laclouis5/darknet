@@ -8,11 +8,13 @@ from tqdm.contrib import tenumerate, tzip
 import torch
 from torch.nn.functional import max_pool2d
 
+
 def read_image_file(path):
     with path.open() as f:
         data = f.readlines()
         data = [line.strip() for line in data]
         return [Path(path) for path in data]
+
 
 def read_optical_flow(path):
     with path.open() as f:
@@ -21,6 +23,7 @@ def read_optical_flow(path):
         data = [[float(line[0]), float(line[1])] for line in data]
         return np.array(data)
  
+
 def read_annotation(path):
     data = json.load(path.open())
     annotations = []
@@ -36,6 +39,7 @@ def read_annotation(path):
 
     return np.array(annotations, dtype=float)
 
+
 def annotation_for_image(path):
     path = path.with_suffix(".json")
     
@@ -44,9 +48,11 @@ def annotation_for_image(path):
     except: 
         return None
 
+
 def read_image(path, reshape_size):
     img = Image.open(path).resize(reshape_size)
     return np.array(img)
+
 
 def read_mat_file(path):
     mat = loadmat(path)
@@ -56,11 +62,14 @@ def read_mat_file(path):
     embeddings = mat["embeddings"]
     return heatmaps, part_heatmaps, offsets, embeddings
 
+
 def heatmap_for_image(path):
     return read_mat_file(path.with_suffix(".mat"))[0]
 
+
 def mat_data_for_image(path):
     return read_mat_file(path.with_suffix(".mat"))
+
 
 def create_mosaic(image_list, flows):
     assert len(image_list) > 0, "List is empty."
@@ -99,6 +108,7 @@ def create_mosaic(image_list, flows):
 
     return hms_mosaic / mask, pms_mosaic / mask, emb_mosaic / mask, off_mosaic / mask, np.array(annotations)
 
+
 def create_panorama(image_list, flows, image_size=(1024, 1024)):
     assert len(image_list) > 0, "List is empty."
 
@@ -132,17 +142,20 @@ def create_panorama(image_list, flows, image_size=(1024, 1024)):
 
     return panorama
 
+
 # heatmap: (B, H, W)
 def nms(heatmap, kernel_size=5):
     padding = kernel_size // 2
     max_values = max_pool2d(heatmap, kernel_size=kernel_size, stride=1, padding=padding)
     return (heatmap == max_values) * heatmap  # (B, H, W)
 
+
 # feat: (B, J, C), ind: (B, N)
 def gather(feat, ind):
     ind = ind.unsqueeze(-1).expand(-1, -1, feat.size(2))  #  (B, N, C)
     feat = feat.gather(1, ind) # (B, N, C)
     return feat  # (B, N, C)
+
 
 # feat: (B, C, H, W), ind: (B, N)
 def transpose_and_gather(feat, ind):
@@ -151,6 +164,7 @@ def transpose_and_gather(feat, ind):
     feat = feat.gather(2, ind)  # (B, C, N)
     feat = feat.permute(0, 2, 1)  # (B, N, C)
     return feat  # (B, N, C)
+
 
 # scores: (B, C, H, W)
 def topk(scores, k=100):
@@ -174,6 +188,7 @@ def topk(scores, k=100):
 
     return topk_score, topk_inds, topk_clses, topk_ys, topk_xs  # (B, K)
 
+
 def inference(mosaic, kernel_size=5, conf_threshold=25/100, k=200):
     heatmap = torch.from_numpy(mosaic)[None, ...]  # (1, C, H, W)
     heatmap = nms(heatmap, kernel_size=kernel_size)
@@ -184,6 +199,7 @@ def inference(mosaic, kernel_size=5, conf_threshold=25/100, k=200):
         if score < conf_threshold:
             return output[:, :idx].t()  # (K, 3)
 
+
 def color_wheel(size=512):
     half_size = float(size / 2.0)
     X, Y = np.meshgrid(np.arange(size), np.arange(size))
@@ -192,6 +208,7 @@ def color_wheel(size=512):
     X /= half_size
     Y /= half_size
     return (np.arctan2(Y, X) / np.pi + 1.0) / 2.0
+
 
 if __name__ == "__main__":
     folder = Path("/media/deepwater/DATA/Shared/Louis/datasets/tache_detection/haricot")

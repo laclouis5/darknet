@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits import mplot3d
 from sklearn.linear_model import LinearRegression
 
+
 class BivariateFunction:
     def __init__(self, fn):
         """
@@ -16,6 +17,7 @@ class BivariateFunction:
 
     def __call__(self, x, y):
         return self.fn(x, y)
+
 
 class Equation:
     """
@@ -31,8 +33,9 @@ class Equation:
     def __call__(self, x, y):
         return self.coeffs[0] * x + self.coeffs[1] * y + self.coeffs[2]
 
-    def __str__(self):
+    def __repr__(self):
         return f"{self.coeffs[0]} * x + {self.coeffs[1]} * y + {self.coeffs[2]}"
+
 
 def fit_plane(X, Y, Z, mask=None):
     """
@@ -69,6 +72,7 @@ def fit_plane(X, Y, Z, mask=None):
 
     return Equation(coeffs)
 
+
 def reg_score(y, f, mask=None):
     """
     Parameters:
@@ -87,6 +91,7 @@ def reg_score(y, f, mask=None):
     SSres = np.sum(np.square(y - f))
 
     return 1 - SSres / SStot
+
 
 if __name__ == "__main__":
     width, height = (100, 50)

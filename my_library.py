@@ -1568,7 +1568,7 @@ def normalized_stem_boxes(boxes,
 	return normalized_boxes
 
 def create_image_list_file(folder, save_dir=None):
-    save_dir = save_dir if save_dir else folder
+    save_dir = save_dir or folder
     create_dir(save_dir)
     images = sorted(files_with_extension(folder, ".jpg"))
     with open(os.path.join(save_dir, "image_list.txt"), "w") as f:

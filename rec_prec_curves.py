@@ -2,14 +2,18 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 def f1_score(a, b):
     return 2*a*b / (a + b)
+
 
 def precision(tp, dets):
     return tp / dets
 
+
 def recall(tp, gts):
     return tp / gts
+
 
 def read_csv_file(file):
     """
@@ -22,9 +26,8 @@ def read_csv_file(file):
         content = f.readlines()
 
     content = [line.strip().split(",") for line in content]
-    data = np.array(content, dtype=float)
+    return np.array(content, dtype=float)
 
-    return data
 
 def add_info(data, gts):
     """
@@ -35,15 +38,15 @@ def add_info(data, gts):
     rec = recall(data[:, 2], gts)
     f1 = f1_score(prec, rec)
 
-    output = np.concatenate((data,
+    return np.concatenate((data,
         nbDets[:, np.newaxis],
         rec[:, np.newaxis], prec[:, np.newaxis], f1[:, np.newaxis]),
         axis=1)
 
-    return output
 
 def split_by_dist(data, nb_splits):
     return np.vsplit(data, nb_splits)
+
 
 def plot_rec_prec_curve(data, label):
     plt.figure()
@@ -84,6 +87,7 @@ def plot_rec_prec_curve(data, label):
     plt.ylim([0.4 if label == "bean" else 0.3, 1])
     plt.show()
 
+
 def plot_f1_curve(data):
     plt.figure()
     for d in data:
@@ -101,6 +105,7 @@ def plot_f1_curve(data):
     plt.legend()
     plt.title("F1-score as a function of minDets and maxDist")
     plt.show()
+
 
 def main():
     label = "maize"

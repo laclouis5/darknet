@@ -2,6 +2,7 @@ import os
 from my_xml_toolbox import XMLTree, XMLTree2
 from lxml.etree import Element, SubElement, tostring, parse
 
+
 def reformat(folder, save_dir):
     xml_files = [item for item in os.listdir(folder) if os.path.splitext(item)[1] == ".xml"]
     print(xml_files)

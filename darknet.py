@@ -929,12 +929,10 @@ def draw_deque_boxes(image, deq, save_path):
     hsv = plt.get_cmap("cool")
     colors = hsv(np.linspace(0, 1, deq.maxlen))[..., :3]
 
-    i=0
-    for bboxes in reversed(deq):
+    for i, bboxes in enumerate(reversed(deq)):
         for box in bboxes.getBoundingBoxes():
             add_bb_into_image(image, box, 255*colors[i], label=box.getClassId())
 
-        i += 1
     cv.imwrite(save_path, image)
 
 # Obsolete
@@ -985,8 +983,7 @@ def ImageGeneratorFromFolder(folder, sorted=False):
     files = [os.path.join(folder, item) for item in os.listdir(folder) if os.path.splitext(item)[1] == ".jpg"]
     if sorted:
         files.sort()
-    for file in files:
-        yield file
+    yield from files
 
 def save_images_from_video(path_to_video, save_dir, skip_frames = 2, nb_iter=100):
     '''
@@ -998,8 +995,7 @@ def save_images_from_video(path_to_video, save_dir, skip_frames = 2, nb_iter=100
 
     create_dir(save_dir)
 
-    i = 0
-    while i < nb_iter:
+    for i in range(nb_iter):
         _, frame = next(video_gen)
         height, width = frame.shape[0:2]
         new_ratio = 4/3
@@ -1010,7 +1006,6 @@ def save_images_from_video(path_to_video, save_dir, skip_frames = 2, nb_iter=100
 
         frame_name = os.path.join(save_dir, "im_{}.jpg".format(i*skip_frames))
         cv.imwrite(frame_name, frame, [int(cv.IMWRITE_JPEG_QUALITY), 100])
-        i += 1
 
 def filter_detections(video_path, video_param, save_dir, yolo_param, k=5):
     '''
@@ -1053,9 +1048,7 @@ def filter_detections(video_path, video_param, save_dir, yolo_param, k=5):
 
     first_image = scale(first_image)
     prev_opt_flow = np.zeros_like(first_image)
-    file_nb = 1
-
-    for _, image in images:
+    for file_nb, (_, image) in enumerate(images, start=1):
         second_image = convert_to_grayscale(image)
 
         optical_flow = cv.calcOpticalFlowFarneback(
@@ -1112,7 +1105,6 @@ def filter_detections(video_path, video_param, save_dir, yolo_param, k=5):
 
         first_image = second_image
         prev_opt_flow = optical_flow
-        file_nb += 1
         print()
 
 
